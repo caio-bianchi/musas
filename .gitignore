@@ -17,3 +17,5 @@ Thumbs.db
 
 # Arquivos de ambiente e segredos
 .env
+
+learning_simPy/

@@ -43,7 +43,7 @@ class UAV:
         msg = Message(
                 source=self.name,
                 destination=strategic_deconfliction_module,
-                message_type="PROPOSED_FLIGHT_PLAN",
+                message_type="PROPOSAL",
                 payload=flight_plan,
                 issue_timestamp=self.env.now
             )
@@ -64,5 +64,6 @@ class UAV:
             self._handle_message(message)
 
     def _handle_message(self, message):
+        return
         if message.message_type == "APPROVAL":
             self.status = ""

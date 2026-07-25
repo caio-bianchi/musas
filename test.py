@@ -1,4 +1,58 @@
+import simpy
 from network import CommunicationNetwork
 from uav import UAV
 from utils import Message
-from utm import TrackingModule, TacticalDeconflictionModule
+from utm import TrackingModule, TacticalDeconflictionModule, ConflictPredictor, StrategidDeconflictionModule
+
+env = simpy.Environment()
+
+network = CommunicationNetwork(env=env, delay = 2)
+
+# trackingModule = TrackingModule(
+#     env=env,
+#     name="TrackingModule",
+#     network=network,
+#     processing_time=0.5
+# )
+
+uav_1 = UAV(
+    env=env,
+    name="UAV 1",
+    network=network,
+    position = [0,0,100],
+)
+
+uav_2 = UAV(
+    env=env,
+    name="UAV 2",
+    network=network,
+    position = [100,50,100]
+    )
+
+
+
+cp = ConflictPredictor(
+    env=env,
+    name="Conflict Predictor",
+    network=network
+)
+
+sdm = StrategidDeconflictionModule(
+    env=env,
+    name="Strategic Deconfliction Module",
+    network=network,
+    conflict_predictor="Conflict Predictor"
+)
+
+
+
+# env.process(trackingModule.run())
+
+env.process(uav_1.receive_messages())
+env.process(uav_2.receive_messages())
+env.process(cp.handle_request())
+env.process(sdm.handle_request())
+env.process(uav_1.send_flight_plan(strategic_deconfliction_module="Strategic Deconfliction Module",flight_plan="FP1"))
+env.process(uav_2.send_flight_plan(strategic_deconfliction_module="Strategic Deconfliction Module",flight_plan="FP2"))
+
+env.run(until=200)
