@@ -2,7 +2,7 @@ import simpy
 from network import CommunicationNetwork
 from uav import UAV
 from utils import Message
-from utm import TrackingModule, TacticalDeconflictionModule, ConflictPredictor, StrategidDeconflictionModule
+from utm import TrackingModule, TacticalDeconflictionModule, ConflictPredictor, StrategicDeconflictionModule
 
 env = simpy.Environment()
 
@@ -37,7 +37,7 @@ cp = ConflictPredictor(
     network=network
 )
 
-sdm = StrategidDeconflictionModule(
+sdm = StrategicDeconflictionModule(
     env=env,
     name="Strategic Deconfliction Module",
     network=network,

@@ -40,7 +40,7 @@ class ConflictPredictor:
         pass
 
 
-class StrategidDeconflictionModule:
+class StrategicDeconflictionModule:
     def __init__(self, name, env, network, conflict_predictor):
             self.name = name
             self.env = env
