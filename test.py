@@ -1,7 +1,7 @@
 import simpy
-from network import CommunicationNetwork
-from uav import UAV
-from utils import Message
+from src.core.network import CommunicationNetwork
+from src.uav.uav import UAV
+from src.utils import Message
 from utm import TrackingModule, TacticalDeconflictionModule, ConflictPredictor, StrategicDeconflictionModule
 
 env = simpy.Environment()

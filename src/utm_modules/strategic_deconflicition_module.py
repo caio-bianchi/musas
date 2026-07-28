@@ -1,52 +1,15 @@
 import simpy
-from utils import Message
-
-APPROVE = 1
-REJECT = 0
-
-class ConflictPredictor:
-    def __init__(self, name, env, network):
-        self.name = name
-        self.env = env
-        self.network = network
-        self.inbox = simpy.Store(env)
-        network.register(self)
-
-    def handle_request(self):
-        while True:
-            request = yield self.inbox.get()
-
-            # trajectories = request.payload.trajectories
-            # if request.payload["approved_flight_plans"] is None: request.payload["approved_flight_plans"] = {}
-            # trajectories = request.payload["proposed_flight_plan"] + request.payload["approved_flight_plans"]
-            trajectories = 0
-            predicted_conflicts = self.predict_conflicts(trajectories)
-
-            response = Message(
-                source=self.name,
-                destination=request.source,
-                message_type="CONFLICT_PREDICTIONS",
-                payload={
-                    "predicted_conflicts": predicted_conflicts
-                },
-                issue_timestamp=self.env.now,
-                correlation_id=request.correlation_id
-            )
-
-            self.network.send(response)
-
-    def predict_conflicts(self, trajectories):
-        return "TBD: Predicted Conflicts"
-        pass
-
+from core.message import Message
+from src.algorithms.interfaces.strategic_deconfliction import StrategicDeconflictionAlgorithm
 
 class StrategicDeconflictionModule:
-    def __init__(self, name, env, network, conflict_predictor):
+    def __init__(self, name, env, network, conflict_predictor, algorithm: StrategicDeconflictionAlgorithm):
             self.name = name
             self.env = env
             self.network = network
             self.inbox = simpy.Store(env)
             self.conflict_predictor = conflict_predictor
+            self.algorithm = algorithm
 
             # Dictionary for pending requests addresses
             self.pending_requests = {}
@@ -105,12 +68,12 @@ class StrategicDeconflictionModule:
         predicted_conflicts = response.payload["predicted_conflicts"]
 
         if predicted_conflicts is None:
-            decision = APPROVE
+            decision = "APPROVE"
             counter_proposal = proposed_flight_plan
             updates = None
 
         else:
-            # decision, counter_proposal, updates = self._strategic_deconfliction(predicted_conflicts, proposed_flight_plan)
+            # decision, counter_proposal, updates = self.algorithm.deconflict(proposed_flight_plan, conflicts, approved_flight_plans)
             decision, counter_proposal, updates = "X", "Y", "Z" # just a placeholder for testing
         final_response = Message(
             source = self.name,
@@ -126,49 +89,3 @@ class StrategicDeconflictionModule:
 
         yield self.network.send(final_response)
         del self.pending_requests[proposal_id]
-
-    def _strategic_deconfliction(self, predicted_conflicts, proposed_flight_plan):
-        pass
-
-################################
-class TrackingModule:
-    def __init__(self, name, env, network, processing_time):
-        self.name = name
-        self.env = env
-        self.network = network
-        self.inbox = simpy.Store(env)
-        self.processing_time = processing_time
-        network.register(self)
-
-    
-    def run(self):
-        while True:
-            msg = yield self.inbox.get()
-
-            print(
-                f"t{self.env.now}: {self.name} processing "
-                f"{msg.message_type} from {msg.source}"
-            )
-
-            yield self.env.timeout(self.processing_time)
-
-            if msg.message_type == "PERIODIC_REPORT":
-                self.process_report(msg)
-
-    def process_report(self, message):
-        print(
-            f"t{self.env.now}: position of "
-            f"{message.source} updated"
-        )
-
-class TacticalDeconflictionModule:
-    def __init__(self, name, env, network):
-        self.name = name
-        self.env = env
-        self.network = network
-        self.inbox = simpy.Store(env)
-        network.register(self)
-
-    
-
-    

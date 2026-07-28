@@ -1,6 +1,4 @@
 import simpy
-from utils import Message
-
 
 class CommunicationNetwork:
     def __init__(self, env, delay=0):
