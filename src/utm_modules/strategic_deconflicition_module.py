@@ -1,5 +1,5 @@
 import simpy
-from core.message import Message
+from src.core.message import Message
 from src.algorithms.interfaces.strategic_deconfliction import StrategicDeconflictionAlgorithm
 
 class StrategicDeconflictionModule:
@@ -12,76 +12,151 @@ class StrategicDeconflictionModule:
             self.algorithm = algorithm
 
             # Dictionary for pending requests addresses
+            self.proposal_queue = simpy.Store(env)
+            self.pending_cp_responses = {}
             self.pending_requests = {}
+
+            # Dictionary for approved flight plans
+            self.approved_flight_plans = {}
+            # TODO: Implement FlightPlanManager as a data auxiliary
+            #  structure to provide source of truth
 
             network.register(self)
 
-    def handle_request(self):
-            while True:
-                msg = yield self.inbox.get()
-                print(msg)
+    def run(self):
+        self.env.process(self._proposal_worker())
+        while True:
+            message = yield self.inbox.get()
 
-                if msg.message_type == "PROPOSAL":
-                    print("a")
-                    self.env.process(self._handle_proposal(msg))
+            if message.message_type == "PROPOSAL":
+                yield self.proposal_queue.put(message)
 
-                elif msg.message_type == "CONFLICT_PREDICTIONS":
-                    self.env.process(self._handle_conflict_predictions(msg))
+            elif message.message_type == "CONFLICT_PREDICTIONS":
+                self._deliver_cp_response(message)
 
-                    
-                # How to handle response?
+    def _proposal_worker(self):
+        while True:
+            proposal = yield self.proposal_queue.get()
 
-    def _handle_proposal(self,proposal_msg):
-        print("b")
-        proposal_id = proposal_msg.message_id
+            yield self.env.process(
+                self._process_proposal(proposal)
+            )
 
-        # Add proposal address to the pending_requests dictionary
+    def _process_proposal(self, proposal):
+        proposal_id = proposal.message_id
+        requesting_uav = proposal.source
+        proposed_flight_plan = proposal.payload["flight_plan"]
+
+        approved_snapshot = self.approved_flight_plans.copy()
+
         self.pending_requests[proposal_id] = {
-            "uav": proposal_msg.source,
-            "flight_plan": proposal_msg.payload["flight_plan"],
+            "uav": requesting_uav,
+            "flight_plan": proposed_flight_plan,
+            "approved_flight_plans": approved_snapshot,
             "received_at": self.env.now,
         }
 
+        # Event that will me done when the CP answers.
+        response_event = self.env.event()
+        self.pending_cp_responses[proposal_id] = response_event
+
         conflict_request = Message(
-            source = self.name,
-            destination = self.conflict_predictor,
-            message_type = "REQUEST_CONFLICT_PREDICTION",
+            source=self.name,
+            destination=self.conflict_predictor,
+            message_type="REQUEST_CONFLICT_PREDICTION",
             payload={
-                "proposed_flight_plan": proposal_msg.payload["flight_plan"],
-                "approved_flight_plans": self.get_approved_flight_plans()
+                "proposed_flight_plan": proposed_flight_plan,
+                "approved_flight_plans": approved_snapshot,
             },
-            issue_timestamp = self.env.now,
+            issue_timestamp=self.env.now,
             correlation_id=proposal_id,
         )
 
-        yield self.network.send(conflict_request)
+        self.network.send(conflict_request)
 
-    def _handle_conflict_predictions(self, response):
-        proposal_id = response.correlation_id
-        pending = self.pending_requests.get(proposal_id)
+        # The worker stops here, but run() keeps receiving messages.
+        cp_response = yield response_event
 
-        requesting_uav = pending["uav"]
-        proposed_flight_plan = pending["flight_plan"]
-        predicted_conflicts = response.payload["predicted_conflicts"]
+        predicted_conflicts = cp_response.payload[
+            "predicted_conflicts"
+        ]
 
-        if predicted_conflicts is None:
+        if not predicted_conflicts:
             decision = "APPROVE"
-            counter_proposal = proposed_flight_plan
+            counter_proposal = None
             updates = None
 
+            self.approved_flight_plans[
+                requesting_uav
+            ] = proposed_flight_plan
+
         else:
-            decision, counter_proposal, updates = self.algorithm.deconflict(proposed_flight_plan, conflicts, approved_flight_plans)
+            decision, counter_proposal, updates = (
+                self.algorithm.deconflict(
+                    proposed_flight_plan=proposed_flight_plan,
+                    conflicts=predicted_conflicts,
+                    approved_flight_plans=approved_snapshot,
+                )
+            )
+
+            self._apply_decision(
+                requesting_uav=requesting_uav,
+                proposed_flight_plan=proposed_flight_plan,
+                decision=decision,
+                counter_proposal=counter_proposal,
+                updates=updates,
+            )
+
         final_response = Message(
-            source = self.name,
-            destination = requesting_uav,
-            message_type = "SD_RESPONSE",
-            payload = {
+            source=self.name,
+            destination=requesting_uav,
+            message_type="SD_RESPONSE",
+            payload={
                 "decision": decision,
-                "counter_proposal": counter_proposal
+                "counter_proposal": counter_proposal,
             },
-            issue_timestamp = self.env.now,
-            correlation_id = proposal_id
+            issue_timestamp=self.env.now,
+            correlation_id=proposal_id,
         )
 
         yield self.network.send(final_response)
-        del self.pending_requests[proposal_id]
+
+        self.pending_requests.pop(proposal_id, None)
+        self.pending_cp_responses.pop(proposal_id, None)
+
+    def _deliver_cp_response(self, response):
+        response_event = self.pending_cp_responses.get(
+            response.correlation_id
+        )
+
+        if response_event is None:
+            return
+
+        if not response_event.triggered:
+            # Here, the CP response is triggered.
+            response_event.succeed(response)
+
+    def _apply_decision(
+        self,
+        requesting_uav,
+        proposed_flight_plan,
+        decision,
+        counter_proposal,
+        updates,
+    ):
+        if decision == "COUNTER_PROPOSAL":
+            self.approved_flight_plans[
+                requesting_uav
+            ] = counter_proposal
+
+        elif decision == "APPROVE":
+            self.approved_flight_plans[requesting_uav] = proposed_flight_plan
+
+        elif decision == "REJECTED":
+            pass
+
+        if updates:
+            for uav_name, updated_plan in updates.items():
+                self.approved_flight_plans[
+                    uav_name
+                ] = updated_plan
