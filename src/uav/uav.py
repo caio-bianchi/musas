@@ -48,8 +48,8 @@ class UAV:
                 destination=tracking_module,
                 message_type="PERIODIC_REPORT",
                 payload={
-                    "position": self.position.copy(),
-                    "velocity": self.velocity.copy(),
+                    "position": self.dynamics.position.copy(),
+                    "velocity": self.dynamics.velocity.copy(),
                 },
                 issue_timestamp=self.env.now,
             )
@@ -75,7 +75,7 @@ class UAV:
 
         self.status = "WAITING_FLIGHT_PLAN"
 
-        yield self.network.send(proposal)
+        self.network.send(proposal)
 
     def receive_messages(self):
         while True:
@@ -90,27 +90,25 @@ class UAV:
             self._handle_message(message)
 
     def _handle_message(self, message):
-        if message.message_type == "APPROVAL":
-            flight_plan = message.payload[
-                "flight_plan"
-            ]
+        if message.message_type == "SD_RESPONSE":
+            self._handle_SD_response(message)
 
-            self.activate_flight_plan(
-                flight_plan
-            )
+    def _handle_SD_response(self, message):
+        decision = message.payload["decision"]
 
-            self.pending_proposals.pop(
-                message.correlation_id,
-                None,
-            )
+        if decision == "APPROVE":
+            pending = self.pending_proposals.get(message.correlation_id)
+            flight_plan = pending["flight_plan"]
 
-        elif message.message_type == "REJECTION":
+            self.activate_flight_plan(flight_plan)
+
+        elif decision == "COUNTER_PROPOSAL":
+            self.activate_flight_plan(message.payload["counter_proposal"])
+
+        elif decision == "REJECTED":
             self.status = "FLIGHT_PLAN_REJECTED"
 
-            self.pending_proposals.pop(
-                message.correlation_id,
-                None,
-            )
+        self.pending_proposals.pop(message.correlation_id, None,)
 
     def activate_flight_plan(self, flight_plan,):
         first_waypoint = flight_plan.waypoint_list[0]
@@ -125,7 +123,7 @@ class UAV:
         while True:
             if self.status == "ACTIVE":
                 commanded_velocity = self.guidance.calculate_commanded_velocity(
-                        current_position=self.position,
+                        current_position=self.dynamics.position,
                         current_time=self.env.now,
                     )
                 

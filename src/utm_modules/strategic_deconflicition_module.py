@@ -70,8 +70,7 @@ class StrategicDeconflictionModule:
             updates = None
 
         else:
-            # decision, counter_proposal, updates = self.algorithm.deconflict(proposed_flight_plan, conflicts, approved_flight_plans)
-            decision, counter_proposal, updates = "X", "Y", "Z" # just a placeholder for testing
+            decision, counter_proposal, updates = self.algorithm.deconflict(proposed_flight_plan, conflicts, approved_flight_plans)
         final_response = Message(
             source = self.name,
             destination = requesting_uav,

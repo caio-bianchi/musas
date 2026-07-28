@@ -19,5 +19,4 @@ Thumbs.db
 .env
 
 learning_simPy/
-test.py
-test2.py
+test/
