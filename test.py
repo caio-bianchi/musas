@@ -8,12 +8,12 @@ env = simpy.Environment()
 
 network = CommunicationNetwork(env=env, delay = 2)
 
-# trackingModule = TrackingModule(
-#     env=env,
-#     name="TrackingModule",
-#     network=network,
-#     processing_time=0.5
-# )
+trackingModule = TrackingModule(
+    env=env,
+    name="TrackingModule",
+    network=network,
+    processing_time=0.5
+)
 
 uav_1 = UAV(
     env=env,

@@ -130,8 +130,6 @@ class StrategicDeconflictionModule:
     def _strategic_deconfliction(self, predicted_conflicts, proposed_flight_plan):
         pass
 
-
-
 ################################
 class TrackingModule:
     def __init__(self, name, env, network, processing_time):

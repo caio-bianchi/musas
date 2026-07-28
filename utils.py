@@ -1,4 +1,5 @@
 from uuid import uuid4
+import math
 
 class Message:
     def __init__(self, source, destination,message_type,payload,issue_timestamp, correlation_id = 0):
@@ -38,10 +39,13 @@ class FlightPlan:
 
 class Waypoint:
     def __init__(self, x, y, z, t):
-        self.x = x
-        self.y = y
-        self.z = z
-        self.t = t
+        self.x = float(x)
+        self.y = float(y)
+        self.z = float(z)
+        self.t = float(t)
+
+    def position(self):
+        return [self.x, self.y, self.z]
 
     def __str__(self):
         return f"[{self.x}, {self.y}, {self.z}, {self.t}]"
@@ -51,3 +55,16 @@ class Waypoint:
             return True
         else:
             return False
+
+
+def norm(vector):
+    return math.sqrt(sum(component**2 for component in vector))
+
+def clip(value, minimum, maximum):
+    return max(minimum, min(value, maximum))
+
+def substract(v1, v2):
+    return[
+        v1_component - v2_component
+        for v1_component, v2_component in zip(v1,v2)
+    ]
