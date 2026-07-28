@@ -1,5 +1,5 @@
 import simpy
-from utils import Message
+from src.core.message import Message
 from src.algorithms.interfaces.conflict_prediction import ConflictPredictionAlgorithm
 
 class ConflictPredictor:
@@ -13,15 +13,19 @@ class ConflictPredictor:
 
         network.register(self)
 
-    def handle_request(self):
+    def run(self):
         while True:
+
+            # Wait for a request in the inbox
             request = yield self.inbox.get()
 
-            # trajectories = request.payload.trajectories
-            # if request.payload["approved_flight_plans"] is None: request.payload["approved_flight_plans"] = {}
-            # trajectories = request.payload["proposed_flight_plan"] + request.payload["approved_flight_plans"]
-            trajectories = 0
-            predicted_conflicts = self.algorithm.predict(trajectories)
+            proposed_flight_plans = request.payload["proposed_flight_plan"]
+            approved_flight_plans = request.payload["approved_flight_plans"]
+
+            predicted_conflicts = self.algorithm.predict(
+                proposed_flight_plan=proposed_flight_plans,
+                approved_flight_plans=approved_flight_plans
+            )
 
             response = Message(
                 source=self.name,

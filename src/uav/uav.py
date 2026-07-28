@@ -31,9 +31,7 @@ class UAV:
 
         self.guidance = UAVGuidance(
             algorithm=guidance_algorithm,
-            waypoint_acceptance_radius=(
-                waypoint_acceptance_radius
-            ),
+            waypoint_acceptance_radius=waypoint_acceptance_radius,
         )
 
         self.inbox = simpy.Store(env)
@@ -43,16 +41,7 @@ class UAV:
 
         self.network.register(self)
 
-    def send_periodic_reports(
-        self,
-        tracking_module,
-        update_interval,
-    ):
-        if update_interval <= 0:
-            raise ValueError(
-                "update_interval must be positive"
-            )
-
+    def send_periodic_reports(self, tracking_module, update_interval,):
         while True:
             message = Message(
                 source=self.name,
@@ -65,21 +54,13 @@ class UAV:
                 issue_timestamp=self.env.now,
             )
 
-            yield self.network.send(message)
-            yield self.env.timeout(
-                update_interval
-            )
+            self.network.send(message)
+            yield self.env.timeout(update_interval)
 
-    def send_flight_plan(
-        self,
-        strategic_deconfliction_module,
-        flight_plan,
-    ):
+    def send_flight_plan(self, strategic_deconfliction_module, flight_plan):
         proposal = Message(
-            source=self.name,
-            destination=(
-                strategic_deconfliction_module
-            ),
+            source = self.name,
+            destination = strategic_deconfliction_module,
             message_type="PROPOSAL",
             payload={
                 "flight_plan": flight_plan,
@@ -87,9 +68,7 @@ class UAV:
             issue_timestamp=self.env.now,
         )
 
-        self.pending_proposals[
-            proposal.message_id
-        ] = {
+        self.pending_proposals[proposal.message_id] = {
             "flight_plan": flight_plan,
             "sent_at": self.env.now,
         }
@@ -133,62 +112,32 @@ class UAV:
                 None,
             )
 
-    def activate_flight_plan(
-        self,
-        flight_plan,
-    ):
-        first_waypoint = (
-            flight_plan.waypoint_list[0]
-        )
+    def activate_flight_plan(self, flight_plan,):
+        first_waypoint = flight_plan.waypoint_list[0]
+        
+        self.dynamics.reset(position=first_waypoint.position())
 
-        self.dynamics.reset(
-            position=first_waypoint.position(),
-        )
+        self.guidance.activate_flight_plan(flight_plan=flight_plan, start_time=self.env.now)
 
-        self.guidance.activate_flight_plan(
-            flight_plan=flight_plan,
-            start_time=self.env.now,
-        )
+        self.status = "ACTIVE"
 
-        if self.guidance.completed:
-            self.status = "COMPLETED"
-        else:
-            self.status = "ACTIVE"
-
-    def fly(
-        self,
-        update_interval=0.1,
-    ):
-        if update_interval <= 0:
-            raise ValueError(
-                "update_interval must be positive"
-            )
-
+    def fly(self, update_interval=0.1):
         while True:
             if self.status == "ACTIVE":
-                commanded_velocity = (
-                    self.guidance
-                    .calculate_commanded_velocity(
-                        current_position=(
-                            self.position
-                        ),
+                commanded_velocity = self.guidance.calculate_commanded_velocity(
+                        current_position=self.position,
                         current_time=self.env.now,
                     )
-                )
-
+                
                 self.dynamics.update(
-                    commanded_velocity=(
-                        commanded_velocity
-                    ),
+                    commanded_velocity=commanded_velocity,
                     dt=update_interval,
                 )
 
                 if self.guidance.completed:
                     self._complete_flight_plan()
 
-            yield self.env.timeout(
-                update_interval
-            )
+            yield self.env.timeout(update_interval)
 
     def _complete_flight_plan(self):
         self.status = "COMPLETED"

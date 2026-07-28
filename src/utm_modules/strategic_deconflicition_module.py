@@ -16,9 +16,6 @@ class StrategicDeconflictionModule:
 
             network.register(self)
 
-    def get_approved_flight_plans(self):
-        return
-
     def handle_request(self):
             while True:
                 msg = yield self.inbox.get()
@@ -41,7 +38,7 @@ class StrategicDeconflictionModule:
         # Add proposal address to the pending_requests dictionary
         self.pending_requests[proposal_id] = {
             "uav": proposal_msg.source,
-            "flight_plan": proposal_msg.payload,
+            "flight_plan": proposal_msg.payload["flight_plan"],
             "received_at": self.env.now,
         }
 
@@ -50,7 +47,7 @@ class StrategicDeconflictionModule:
             destination = self.conflict_predictor,
             message_type = "REQUEST_CONFLICT_PREDICTION",
             payload={
-                "proposed_flight_plan": proposal_msg.payload,
+                "proposed_flight_plan": proposal_msg.payload["flight_plan"],
                 "approved_flight_plans": self.get_approved_flight_plans()
             },
             issue_timestamp = self.env.now,
