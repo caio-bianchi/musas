@@ -12,9 +12,9 @@ class UAV:
         self.network = network
         self.inbox = simpy.Store(env)
         self.position = position
-
+        
         self.status = "INACTIVE"
-    
+        self.pending_proposals = {}
         network.register(self)
 
     
@@ -40,17 +40,22 @@ class UAV:
         ''''
             Sends flight plan for approval to the Strategic Deconfliction Module.
         '''
-        msg = Message(
+        proposal = Message(
                 source=self.name,
                 destination=strategic_deconfliction_module,
                 message_type="PROPOSAL",
                 payload=flight_plan,
-                issue_timestamp=self.env.now
+                issue_timestamp=self.env.now,
             )
+
+        self.pending_proposals[proposal.message_id] = {
+            "flight_plan": flight_plan,
+            "sent_at": self.env.now,
+        }
 
         self.status = "WAITING_FLIGHT_PLAN"
 
-        yield self.network.send(msg)
+        yield self.network.send(proposal)
 
     def receive_messages(self):
         while True:

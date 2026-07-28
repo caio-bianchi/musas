@@ -17,9 +17,9 @@ class ConflictPredictor:
             request = yield self.inbox.get()
 
             # trajectories = request.payload.trajectories
+            # if request.payload["approved_flight_plans"] is None: request.payload["approved_flight_plans"] = {}
+            # trajectories = request.payload["proposed_flight_plan"] + request.payload["approved_flight_plans"]
             trajectories = 0
-            source = request.source
-
             predicted_conflicts = self.predict_conflicts(trajectories)
 
             response = Message(
@@ -27,10 +27,10 @@ class ConflictPredictor:
                 destination=request.source,
                 message_type="CONFLICT_PREDICTIONS",
                 payload={
-                    "request": request.payload["proposal_msg"],
                     "predicted_conflicts": predicted_conflicts
                 },
-                issue_timestamp=self.env.now
+                issue_timestamp=self.env.now,
+                correlation_id=request.correlation_id
             )
 
             self.network.send(response)
@@ -47,6 +47,10 @@ class StrategicDeconflictionModule:
             self.network = network
             self.inbox = simpy.Store(env)
             self.conflict_predictor = conflict_predictor
+
+            # Dictionary for pending requests addresses
+            self.pending_requests = {}
+
             network.register(self)
 
     def get_approved_flight_plans(self):
@@ -69,48 +73,59 @@ class StrategicDeconflictionModule:
 
     def _handle_proposal(self,proposal_msg):
         print("b")
-        proposed_flight_plan = proposal_msg.payload
-        approved_flight_plans = self.get_approved_flight_plans()
+        proposal_id = proposal_msg.message_id
 
-        look_for_conflicts_message = Message(
+        # Add proposal address to the pending_requests dictionary
+        self.pending_requests[proposal_id] = {
+            "uav": proposal_msg.source,
+            "flight_plan": proposal_msg.payload,
+            "received_at": self.env.now,
+        }
+
+        conflict_request = Message(
             source = self.name,
             destination = self.conflict_predictor,
             message_type = "REQUEST_CONFLICT_PREDICTION",
             payload={
-                "proposal_msg": proposal_msg,
-                "approved_flight_plans": approved_flight_plans
+                "proposed_flight_plan": proposal_msg.payload,
+                "approved_flight_plans": self.get_approved_flight_plans()
             },
-            issue_timestamp = self.env.now
+            issue_timestamp = self.env.now,
+            correlation_id=proposal_id,
         )
 
-        yield self.network.send(look_for_conflicts_message)
+        yield self.network.send(conflict_request)
 
-    def _handle_conflict_predictions(self, conflict_prediction_msg):
-        initial_request = conflict_prediction_msg.payload["request"]
-        proposed_flight_plan = initial_request.payload
+    def _handle_conflict_predictions(self, response):
+        proposal_id = response.correlation_id
+        pending = self.pending_requests.get(proposal_id)
 
-        predicted_conflicts = conflict_prediction_msg.payload["predicted_conflicts"]
+        requesting_uav = pending["uav"]
+        proposed_flight_plan = pending["flight_plan"]
+        predicted_conflicts = response.payload["predicted_conflicts"]
 
         if predicted_conflicts is None:
             decision = APPROVE
-            counter_proposal = None
+            counter_proposal = proposed_flight_plan
             updates = None
 
         else:
             # decision, counter_proposal, updates = self._strategic_deconfliction(predicted_conflicts, proposed_flight_plan)
-            decision, counter_proposal, updates = "X", "Y", "Z"
-        response = Message(
+            decision, counter_proposal, updates = "X", "Y", "Z" # just a placeholder for testing
+        final_response = Message(
             source = self.name,
-            destination = initial_request.source,
+            destination = requesting_uav,
             message_type = "SD_RESPONSE",
             payload = {
                 "decision": decision,
                 "counter_proposal": counter_proposal
             },
-            issue_timestamp = self.env.now
+            issue_timestamp = self.env.now,
+            correlation_id = proposal_id
         )
 
-        yield self.network.send(response)
+        yield self.network.send(final_response)
+        del self.pending_requests[proposal_id]
 
     def _strategic_deconfliction(self, predicted_conflicts, proposed_flight_plan):
         pass
