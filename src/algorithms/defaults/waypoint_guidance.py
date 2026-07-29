@@ -23,7 +23,6 @@ class WaypointGuidance:
         current_position,
         current_time,
         target_waypoint,
-        flight_plan_start_time,
     ):
         """
         Calculates the velocity required to reach the target
@@ -46,13 +45,8 @@ class WaypointGuidance:
             for component in displacement
         ]
 
-        target_simulation_time = (
-            flight_plan_start_time
-            + target_waypoint.t
-        )
-
         remaining_time = (
-            target_simulation_time - current_time
+            target_waypoint.t - current_time
         )
 
         if remaining_time <= 0:

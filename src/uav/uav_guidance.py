@@ -11,14 +11,12 @@ class UAVGuidance:
         self.waypoint_acceptance_radius = waypoint_acceptance_radius
 
         self.flight_plan = None
-        self.flight_plan_start_time = None
         self.target_waypoint_index = None
         self.completed = False
 
-    def activate_flight_plan(self, flight_plan, start_time: float):
+    def activate_flight_plan(self, flight_plan,):
 
         self.flight_plan = flight_plan
-        self.flight_plan_start_time = start_time
 
         # The UAV starts at waypoint zero and flies toward
         # waypoint one.
@@ -47,9 +45,6 @@ class UAVGuidance:
                 current_position=current_position,
                 current_time=current_time,
                 target_waypoint=target_waypoint,
-                flight_plan_start_time=(
-                    self.flight_plan_start_time
-                ),
             )
         )
 

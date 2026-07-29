@@ -83,7 +83,7 @@ class StrategicDeconflictionModule:
         ]
 
         if not predicted_conflicts:
-            decision = "APPROVE"
+            decision = StrategicDecision.APPROVE
             counter_proposal = None
             updates = None
 

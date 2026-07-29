@@ -12,6 +12,7 @@ class UAVStatus(Enum):
     FLIGHT_PLAN_REJECTED = 3
     ACTIVE = 4
     COMPLETED = 5
+    WAITING_DEPARTURE = 6
 
 class UAV:
     """
@@ -123,12 +124,25 @@ class UAV:
         
         self.dynamics.reset(position=first_waypoint.position())
 
-        self.guidance.activate_flight_plan(flight_plan=flight_plan, start_time=self.env.now)
+        self.guidance.activate_flight_plan(flight_plan=flight_plan)
 
-        self.status = UAVStatus.ACTIVE
+        if self.env.now >= first_waypoint.t:
+            self.status = UAVStatus.ACTIVE
+        else:
+            self.status = UAVStatus.WAITING_DEPARTURE
 
     def fly(self, update_interval=0.1):
         while True:
+            if self.status == UAVStatus.WAITING_DEPARTURE:
+                departure_time = (
+                    self.guidance.flight_plan
+                    .waypoint_list[0]
+                    .t
+                )
+
+                if self.env.now >= departure_time:
+                    self.status = UAVStatus.ACTIVE
+
             if self.status == UAVStatus.ACTIVE:
                 commanded_velocity = self.guidance.calculate_commanded_velocity(
                         current_position=self.dynamics.position,
