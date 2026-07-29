@@ -1,6 +1,7 @@
 import simpy
 from src.core.message import Message
 from src.algorithms.interfaces.conflict_prediction import ConflictPredictionAlgorithm
+from src.domain.message_features import MessageType
 
 class ConflictPredictor:
     def __init__(self, name, env, network, algorithm: ConflictPredictionAlgorithm):
@@ -30,7 +31,7 @@ class ConflictPredictor:
             response = Message(
                 source=self.name,
                 destination=request.source,
-                message_type="CONFLICT_PREDICTIONS",
+                message_type=MessageType.CONFLICT_PREDICTIONS,
                 payload={
                     "predicted_conflicts": predicted_conflicts
                 },

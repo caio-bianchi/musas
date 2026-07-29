@@ -1,6 +1,7 @@
 import simpy
 from src.core.message import Message
 from src.algorithms.interfaces.strategic_deconfliction import StrategicDeconflictionAlgorithm
+from src.domain.message_features import MessageType, StrategicDecision
 
 class StrategicDeconflictionModule:
     def __init__(self, name, env, network, conflict_predictor, algorithm: StrategicDeconflictionAlgorithm):
@@ -28,10 +29,10 @@ class StrategicDeconflictionModule:
         while True:
             message = yield self.inbox.get()
 
-            if message.message_type == "PROPOSAL":
+            if message.message_type == MessageType.PROPOSAL:
                 yield self.proposal_queue.put(message)
 
-            elif message.message_type == "CONFLICT_PREDICTIONS":
+            elif message.message_type == MessageType.CONFLICT_PREDICTIONS:
                 self._deliver_cp_response(message)
 
     def _proposal_worker(self):
@@ -63,7 +64,7 @@ class StrategicDeconflictionModule:
         conflict_request = Message(
             source=self.name,
             destination=self.conflict_predictor,
-            message_type="REQUEST_CONFLICT_PREDICTION",
+            message_type=MessageType.REQUEST_CONFLICT_PREDICTION,
             payload={
                 "proposed_flight_plan": proposed_flight_plan,
                 "approved_flight_plans": approved_snapshot,
@@ -110,7 +111,7 @@ class StrategicDeconflictionModule:
         final_response = Message(
             source=self.name,
             destination=requesting_uav,
-            message_type="SD_RESPONSE",
+            message_type=MessageType.SD_RESPONSE,
             payload={
                 "decision": decision,
                 "counter_proposal": counter_proposal,
@@ -144,15 +145,15 @@ class StrategicDeconflictionModule:
         counter_proposal,
         updates,
     ):
-        if decision == "COUNTER_PROPOSAL":
+        if decision == StrategicDecision.COUNTER_PROPOSAL:
             self.approved_flight_plans[
                 requesting_uav
             ] = counter_proposal
 
-        elif decision == "APPROVE":
+        elif decision == StrategicDecision.APPROVE:
             self.approved_flight_plans[requesting_uav] = proposed_flight_plan
 
-        elif decision == "REJECTED":
+        elif decision == StrategicDecision.REJECT:
             pass
 
         if updates:

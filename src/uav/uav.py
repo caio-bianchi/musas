@@ -1,9 +1,17 @@
 import simpy
+from enum import Enum
 
 from src.core.message import Message
 from src.uav.uav_dynamics import UAVDynamics
 from src.uav.uav_guidance import UAVGuidance
+from src.domain.message_features import MessageType, StrategicDecision
 
+class UAVStatus(Enum):
+    INACTIVE = 1
+    WAITING_FLIGHT_PLAN = 2
+    FLIGHT_PLAN_REJECTED = 3
+    ACTIVE = 4
+    COMPLETED = 5
 
 class UAV:
     """
@@ -36,7 +44,7 @@ class UAV:
 
         self.inbox = simpy.Store(env)
 
-        self.status = "INACTIVE"
+        self.status = UAVStatus.INACTIVE
         self.pending_proposals = {}
 
         self.network.register(self)
@@ -46,7 +54,7 @@ class UAV:
             message = Message(
                 source=self.name,
                 destination=tracking_module,
-                message_type="PERIODIC_REPORT",
+                message_type=MessageType.PERIODIC_REPORT,
                 payload={
                     "position": self.dynamics.position.copy(),
                     "velocity": self.dynamics.velocity.copy(),
@@ -61,7 +69,7 @@ class UAV:
         proposal = Message(
             source = self.name,
             destination = strategic_deconfliction_module,
-            message_type="PROPOSAL",
+            message_type=MessageType.PROPOSAL,
             payload={
                 "flight_plan": flight_plan,
             },
@@ -73,7 +81,7 @@ class UAV:
             "sent_at": self.env.now,
         }
 
-        self.status = "WAITING_FLIGHT_PLAN"
+        self.status = UAVStatus.WAITING_FLIGHT_PLAN
 
         self.network.send(proposal)
 
@@ -90,23 +98,23 @@ class UAV:
             self._handle_message(message)
 
     def _handle_message(self, message):
-        if message.message_type == "SD_RESPONSE":
+        if message.message_type == MessageType.SD_RESPONSE:
             self._handle_SD_response(message)
 
     def _handle_SD_response(self, message):
         decision = message.payload["decision"]
 
-        if decision == "APPROVE":
+        if decision == StrategicDecision.APPROVE:
             pending = self.pending_proposals.get(message.correlation_id)
             flight_plan = pending["flight_plan"]
 
             self.activate_flight_plan(flight_plan)
 
-        elif decision == "COUNTER_PROPOSAL":
+        elif decision == StrategicDecision.COUNTER_PROPOSAL:
             self.activate_flight_plan(message.payload["counter_proposal"])
 
-        elif decision == "REJECTED":
-            self.status = "FLIGHT_PLAN_REJECTED"
+        elif decision == StrategicDecision.REJECT:
+            self.status = UAVStatus.FLIGHT_PLAN_REJECTED
 
         self.pending_proposals.pop(message.correlation_id, None,)
 
@@ -117,11 +125,11 @@ class UAV:
 
         self.guidance.activate_flight_plan(flight_plan=flight_plan, start_time=self.env.now)
 
-        self.status = "ACTIVE"
+        self.status = UAVStatus.ACTIVE
 
     def fly(self, update_interval=0.1):
         while True:
-            if self.status == "ACTIVE":
+            if self.status == UAVStatus.ACTIVE:
                 commanded_velocity = self.guidance.calculate_commanded_velocity(
                         current_position=self.dynamics.position,
                         current_time=self.env.now,
@@ -138,7 +146,7 @@ class UAV:
             yield self.env.timeout(update_interval)
 
     def _complete_flight_plan(self):
-        self.status = "COMPLETED"
+        self.status = UAVStatus.COMPLETED
 
         print(
             f"t{self.env.now}: {self.name} completed "
