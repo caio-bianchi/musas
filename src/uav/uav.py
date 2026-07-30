@@ -5,6 +5,7 @@ from src.core.message import Message
 from src.uav.uav_dynamics import UAVDynamics
 from src.uav.uav_guidance import UAVGuidance
 from src.domain.message_features import MessageType, StrategicDecision
+from src.utm_modules.strategic_deconflicition_module import StrategicDeconflictionModule
 
 class UAVStatus(Enum):
     INACTIVE = 1
@@ -27,6 +28,7 @@ class UAV:
         position,
         dynamics_algorithm,
         guidance_algorithm,
+        strategic_deconfliction_module: StrategicDeconflictionModule,
         waypoint_acceptance_radius=1.0,
     ):
         self.name = name
@@ -42,6 +44,8 @@ class UAV:
             algorithm=guidance_algorithm,
             waypoint_acceptance_radius=waypoint_acceptance_radius,
         )
+
+        self.strategic_deconfliction_module = strategic_deconfliction_module
 
         self.inbox = simpy.Store(env)
 
@@ -66,10 +70,10 @@ class UAV:
             self.network.send(message)
             yield self.env.timeout(update_interval)
 
-    def send_flight_plan(self, strategic_deconfliction_module, flight_plan):
+    def send_flight_plan(self, flight_plan):
         proposal = Message(
             source = self.name,
-            destination = strategic_deconfliction_module,
+            destination = self.strategic_deconfliction_module.name,
             message_type=MessageType.PROPOSAL,
             payload={
                 "flight_plan": flight_plan,
@@ -128,6 +132,7 @@ class UAV:
 
         if self.env.now >= first_waypoint.t:
             self.status = UAVStatus.ACTIVE
+            self._notify_activation()
         else:
             self.status = UAVStatus.WAITING_DEPARTURE
 
@@ -142,6 +147,7 @@ class UAV:
 
                 if self.env.now >= departure_time:
                     self.status = UAVStatus.ACTIVE
+                    self._notify_activation()
 
             if self.status == UAVStatus.ACTIVE:
                 commanded_velocity = self.guidance.calculate_commanded_velocity(
@@ -162,7 +168,23 @@ class UAV:
     def _complete_flight_plan(self):
         self.status = UAVStatus.COMPLETED
 
-        print(
-            f"t{self.env.now}: {self.name} completed "
-            f"the flight plan"
+        message = Message(
+            source=self.name,
+            destination=self.strategic_deconfliction_module.name,
+            message_type=MessageType.FLIGHT_COMPLETED,
+            payload={},
+            issue_timestamp=self.env.now,
         )
+
+        self.network.send(message)
+
+    def _notify_activation(self):
+        message = Message(
+            source=self.name,
+            destination=self.strategic_deconfliction_module.name,
+            message_type=MessageType.FLIGHT_STARTED,
+            payload={},
+            issue_timestamp=self.env.now,
+        )
+
+        self.network.send(message)

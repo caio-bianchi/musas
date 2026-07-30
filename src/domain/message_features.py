@@ -10,3 +10,5 @@ class MessageType(Enum):
     PERIODIC_REPORT = 1
     PROPOSAL = 2
     SD_RESPONSE = 3
+    FLIGHT_STARTED = 4
+    FLIGHT_COMPLETED = 5

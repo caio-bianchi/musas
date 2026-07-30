@@ -1,0 +1,52 @@
+class FlightPlanManager:
+    def __init__(self, name, env, network):
+        self.name = name
+        self.env = env
+        self.network = network
+        self._approved_flight_plans = {}
+        self._active_flight_plans = {}
+        self._history = {}
+
+        network.register(self)
+
+    def approve(self, uav_name, flight_plan):
+        self._approved_flight_plans[uav_name] = flight_plan
+
+        if uav_name not in self._history:
+            self._history[uav_name] = []
+
+        self._history[uav_name].append(flight_plan)
+
+    def activate(self, uav_name):
+        flight_plan = self._approved_flight_plans.get(uav_name)
+
+        if flight_plan is None:
+            return None
+
+        self._active_flight_plans[uav_name] = flight_plan
+        return flight_plan
+
+    def complete(self, uav_name):
+        flight_plan = self._active_flight_plans.pop(uav_name, None)
+
+        if flight_plan is None:
+            flight_plan = self._approved_flight_plans.get(uav_name)
+
+        self._approved_flight_plans.pop(uav_name, None)
+        return flight_plan
+
+    def get(self, uav_name):
+        return self._approved_flight_plans.get(uav_name)
+
+    def get_all(self):
+        return self._approved_flight_plans.copy()
+
+    def remove(self, uav_name):
+        return self._approved_flight_plans.pop(uav_name, None)
+    
+    def get_history(self, uav_name):
+        return list(self._history.get(uav_name, []))
+
+    def launch_updates(self, updates):
+        for update in updates:
+            self.network.send(update)
