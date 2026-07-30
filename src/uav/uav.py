@@ -106,7 +106,7 @@ class UAV:
         decision = message.payload["decision"]
 
         if decision == StrategicDecision.APPROVE:
-            pending = self.pending_proposals.get(message.correlation_id)
+            pending = self.pending_proposals.get(message.in_reply_to)
             flight_plan = pending["flight_plan"]
 
             self.activate_flight_plan(flight_plan)
@@ -117,7 +117,7 @@ class UAV:
         elif decision == StrategicDecision.REJECT:
             self.status = UAVStatus.FLIGHT_PLAN_REJECTED
 
-        self.pending_proposals.pop(message.correlation_id, None,)
+        self.pending_proposals.pop(message.in_reply_to, None,)
 
     def activate_flight_plan(self, flight_plan,):
         first_waypoint = flight_plan.waypoint_list[0]
