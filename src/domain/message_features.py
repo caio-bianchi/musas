@@ -12,3 +12,4 @@ class MessageType(Enum):
     SD_RESPONSE = 3
     FLIGHT_STARTED = 4
     FLIGHT_COMPLETED = 5
+    UPDATE_FLIGHT_PLAN = 6

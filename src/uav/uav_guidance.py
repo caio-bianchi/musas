@@ -14,7 +14,7 @@ class UAVGuidance:
         self.target_waypoint_index = None
         self.completed = False
 
-    def activate_flight_plan(self, flight_plan,):
+    def load_flight_plan(self, flight_plan,):
 
         self.flight_plan = flight_plan
 

@@ -94,17 +94,14 @@ class UAV:
         while True:
             message = yield self.inbox.get()
 
-            print(
-                f"t{self.env.now}: {self.name} received "
-                f"{message.message_type} "
-                f"from {message.source}"
-            )
-
             self._handle_message(message)
 
     def _handle_message(self, message):
         if message.message_type == MessageType.SD_RESPONSE:
             self._handle_SD_response(message)
+
+        if message.message_type == MessageType.UPDATE_FLIGHT_PLAN:
+            self._handle_update_flight_plan(message)
 
     def _handle_SD_response(self, message):
         decision = message.payload["decision"]
@@ -113,22 +110,26 @@ class UAV:
             pending = self.pending_proposals.get(message.in_reply_to)
             flight_plan = pending["flight_plan"]
 
-            self.activate_flight_plan(flight_plan)
+            self.load_flight_plan(flight_plan)
 
         elif decision == StrategicDecision.COUNTER_PROPOSAL:
-            self.activate_flight_plan(message.payload["counter_proposal"])
+            self.load_flight_plan(message.payload["counter_proposal"])
 
         elif decision == StrategicDecision.REJECT:
             self.status = UAVStatus.FLIGHT_PLAN_REJECTED
 
         self.pending_proposals.pop(message.in_reply_to, None,)
 
-    def activate_flight_plan(self, flight_plan,):
+    def _handle_update_flight_plan(self, message):
+        new_flight_plan = message.payload["new_flight_plan"]
+        self.load_flight_plan(new_flight_plan)
+
+    def load_flight_plan(self, flight_plan,):
         first_waypoint = flight_plan.waypoint_list[0]
         
         self.dynamics.reset(position=first_waypoint.position())
 
-        self.guidance.activate_flight_plan(flight_plan=flight_plan)
+        self.guidance.load_flight_plan(flight_plan=flight_plan)
 
         if self.env.now >= first_waypoint.t:
             self.status = UAVStatus.ACTIVE

@@ -44,7 +44,12 @@ class StrategicDeconflictionModule:
         requesting_uav = proposal.source
         proposed_flight_plan = proposal.payload["flight_plan"]
 
-        approved_snapshot = self.flight_plan_manager.get_all()
+        approved_snapshot = {
+            uav_name: flight_plan
+            for uav_name, flight_plan
+            in self.flight_plan_manager.get_all().items()
+            if uav_name != requesting_uav
+        } # All, except the requesting
 
         predicted_conflicts = self.conflict_predictor.predict(proposed_flight_plan, approved_snapshot)
 

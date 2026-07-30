@@ -1,3 +1,8 @@
+import simpy
+from src.core.message import Message
+from src.domain.message_features import MessageType
+
+
 class FlightPlanManager:
     def __init__(self, name, env, network):
         self.name = name
@@ -6,6 +11,8 @@ class FlightPlanManager:
         self._approved_flight_plans = {}
         self._active_flight_plans = {}
         self._history = {}
+
+        self.inbox = simpy.Store(env)
 
         network.register(self)
 
@@ -48,5 +55,20 @@ class FlightPlanManager:
         return list(self._history.get(uav_name, []))
 
     def launch_updates(self, updates):
-        for update in updates:
-            self.network.send(update)
+        for uav_name, flight_plan in updates.items():
+            self.approve(uav_name, flight_plan)
+
+            if uav_name in self._active_flight_plans:
+                self._active_flight_plans[uav_name] = flight_plan
+
+            message = Message(
+                source=self.name,
+                destination=uav_name,
+                message_type=MessageType.UPDATE_FLIGHT_PLAN,
+                payload={
+                    "new_flight_plan": flight_plan,
+                },
+                issue_timestamp=self.env.now,
+            )
+
+            self.network.send(message)

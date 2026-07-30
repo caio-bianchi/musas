@@ -1,7 +1,5 @@
-import simpy
-from src.core.message import Message
 from src.algorithms.interfaces.conflict_prediction import ConflictPredictionAlgorithm
-from src.domain.message_features import MessageType
+
 
 class ConflictPredictor:
     def __init__(self, name, algorithm: ConflictPredictionAlgorithm):
