@@ -61,11 +61,16 @@ class StrategicDeconflictionModule:
             self.flight_plan_manager.approve(requesting_uav, proposed_flight_plan)
 
         else:
+            airspace_snapshot = (
+                self.flight_plan_manager.get_airspace_snapshot()
+            )
+
             decision, counter_proposal, updates = (
                 self.algorithm.deconflict(
                     proposed_flight_plan=proposed_flight_plan,
                     conflicts=predicted_conflicts,
                     approved_flight_plans=approved_snapshot,
+                    airspace=airspace_snapshot,
                 )
             )
 

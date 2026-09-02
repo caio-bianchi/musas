@@ -7,7 +7,7 @@ class StrategicDeconflictionAlgorithm(Protocol):
     Any compatible algorithm must implement the deconflict() method.
     """
 
-    def deconflict(self, proposed_flight_plan, conflicts, approved_flight_plans):
+    def deconflict(self, proposed_flight_plan, conflicts, approved_flight_plans, airspace):
         """
         Predict conflicts between a proposed flight plan and
         the currently approved flight plans.

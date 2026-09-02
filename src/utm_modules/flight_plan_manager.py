@@ -1,13 +1,15 @@
 import simpy
 from src.core.message import Message
 from src.domain.message_features import MessageType
+from src.airspace.airspace import Airspace
 
 
 class FlightPlanManager:
-    def __init__(self, name, env, network):
+    def __init__(self, name, env, network, airspace):
         self.name = name
         self.env = env
         self.network = network
+        self.airspace = airspace
         self._approved_flight_plans = {}
         self._active_flight_plans = {}
         self._history = {}
@@ -15,6 +17,17 @@ class FlightPlanManager:
         self.inbox = simpy.Store(env)
 
         network.register(self)
+
+    def get_airspace(self):
+        return self.airspace
+
+    def get_airspace_snapshot(self):
+        return Airspace(
+            obstacles=list(self.airspace.obstacles),
+            geofences=list(
+                self.airspace.active_geofences_at(self.env.now)
+            ),
+        )
 
     def approve(self, uav_name, flight_plan):
         self._approved_flight_plans[uav_name] = flight_plan
