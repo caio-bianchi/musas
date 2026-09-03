@@ -103,6 +103,12 @@ class TrackingModule:
     def get_prediction(self, uav_name: str) -> TrackPrediction | None:
         return self._predictions.get(uav_name)
 
+    def get_all_report_histories(self) -> dict[str, tuple[TrackingReport, ...]]:
+        return {
+            uav_name: tuple(history)
+            for uav_name, history in self._report_histories.items()
+        }
+
     def get_all_predictions(self) -> dict[str, TrackPrediction]:
         return self._predictions.copy()
 

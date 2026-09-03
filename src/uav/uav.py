@@ -5,6 +5,8 @@ from src.core.message import Message
 from src.uav.uav_dynamics import UAVDynamics
 from src.uav.uav_guidance import UAVGuidance
 from src.domain.message_features import MessageType, StrategicDecision
+from src.algorithms.defaults.perfect_sensor import PerfectSensor
+from src.algorithms.interfaces.sensor_model import SensorModel
 from src.utm_modules.strategic_deconflicition_module import StrategicDeconflictionModule
 
 class UAVStatus(Enum):
@@ -31,6 +33,7 @@ class UAV:
         strategic_deconfliction_module: StrategicDeconflictionModule,
         waypoint_acceptance_radius=1.0,
         environmental_velocity_provider=None,
+        sensor_model: SensorModel | None = None,
     ):
         self.name = name
         self.env = env
@@ -48,6 +51,11 @@ class UAV:
         )
 
         self.strategic_deconfliction_module = strategic_deconfliction_module
+        self.sensor_model = (
+            PerfectSensor()
+            if sensor_model is None
+            else sensor_model
+        )
 
         self.inbox = simpy.Store(env)
 
@@ -58,14 +66,16 @@ class UAV:
 
     def send_periodic_reports(self, tracking_module, update_interval,):
         while True:
+            measurement = self.sensor_model.measure(
+                position=self.dynamics.position,
+                velocity=self.dynamics.velocity,
+            )
+
             message = Message(
                 source=self.name,
                 destination=tracking_module.name,
                 message_type=MessageType.PERIODIC_REPORT,
-                payload={
-                    "position": self.dynamics.position.copy(),
-                    "velocity": self.dynamics.velocity.copy(),
-                },
+                payload=measurement,
                 issue_timestamp=self.env.now,
             )
 
