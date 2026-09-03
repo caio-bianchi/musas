@@ -58,7 +58,7 @@ class UAV:
         while True:
             message = Message(
                 source=self.name,
-                destination=tracking_module,
+                destination=tracking_module.name,
                 message_type=MessageType.PERIODIC_REPORT,
                 payload={
                     "position": self.dynamics.position.copy(),
