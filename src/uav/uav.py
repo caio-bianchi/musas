@@ -30,6 +30,7 @@ class UAV:
         guidance_algorithm,
         strategic_deconfliction_module: StrategicDeconflictionModule,
         waypoint_acceptance_radius=1.0,
+        environmental_velocity_provider=None,
     ):
         self.name = name
         self.env = env
@@ -38,6 +39,7 @@ class UAV:
         self.dynamics = UAVDynamics(
             initial_position=position,
             algorithm=dynamics_algorithm,
+            environmental_velocity_provider=environmental_velocity_provider,
         )
 
         self.guidance = UAVGuidance(
@@ -159,6 +161,7 @@ class UAV:
                 self.dynamics.update(
                     commanded_velocity=commanded_velocity,
                     dt=update_interval,
+                    current_time=self.env.now,
                 )
 
                 if self.guidance.completed:

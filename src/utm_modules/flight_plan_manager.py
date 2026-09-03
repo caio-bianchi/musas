@@ -27,6 +27,9 @@ class FlightPlanManager:
             geofences=list(
                 self.airspace.active_geofences_at(self.env.now)
             ),
+            # Environmental disturbances are intentionally not exposed to
+            # strategic algorithms through the operational snapshot.
+            wind_zones=[],
         )
 
     def approve(self, uav_name, flight_plan):
