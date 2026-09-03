@@ -13,8 +13,23 @@ class Airspace:
     def add_obstacle(self, obstacle: Obstacle):
         self.obstacles.append(obstacle)
 
-    def add_geofence(self, geofence: Geofence):
+    def add_geofence(self, geofence: Geofence) -> None:
+        if any(
+            existing.geofence_id == geofence.geofence_id
+            for existing in self.geofences
+        ):
+            raise ValueError(
+                f"Geofence {geofence.geofence_id!r} already exists"
+            )
+
         self.geofences.append(geofence)
+
+    def remove_geofence(self, geofence_id: str) -> Geofence:
+        for index, geofence in enumerate(self.geofences):
+            if geofence.geofence_id == geofence_id:
+                return self.geofences.pop(index)
+
+        raise KeyError(f"Geofence {geofence_id!r} does not exist")
 
     def active_geofences_at(self, timestamp: float) -> list[Geofence]:
         return [
