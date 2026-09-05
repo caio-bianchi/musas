@@ -24,7 +24,7 @@ class TrackingModule:
         history_window: int,
         prediction_horizon: int,
         prediction_step: float,
-        tactical_deconfliction_module: TacticalDeconflictionModule = None,
+        tactical_deconfliction_module: TacticalDeconflictionModule | None = None,
         processing_time: float = 0.0,
     ):
         if history_window <= 0:

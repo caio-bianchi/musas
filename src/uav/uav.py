@@ -134,7 +134,13 @@ class UAV:
 
     def _handle_update_flight_plan(self, message):
         new_flight_plan = message.payload["new_flight_plan"]
-        self.load_flight_plan(new_flight_plan)
+
+        if self.status == UAVStatus.ACTIVE:
+            # A tactical update changes the remaining route; it must not reset
+            # the physical state of an aircraft that is already flying.
+            self.guidance.load_flight_plan(new_flight_plan)
+        else:
+            self.load_flight_plan(new_flight_plan)
 
     def load_flight_plan(self, flight_plan,):
         first_waypoint = flight_plan.waypoint_list[0]
