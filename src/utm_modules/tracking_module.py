@@ -8,7 +8,8 @@ from src.algorithms.interfaces.tracking import TrackingAlgorithm
 from src.domain.message_features import MessageType
 from src.domain.tracking import TrackPrediction, TrackingReport
 from src.utm_modules.flight_plan_manager import FlightPlanManager
-
+from src.utm_modules.tactical_deconfliction_module import TacticalDeconflictionModule
+from src.core.message import Message
 
 class TrackingModule:
     """Maintain report histories and coordinate trajectory prediction."""
@@ -23,6 +24,7 @@ class TrackingModule:
         history_window: int,
         prediction_horizon: int,
         prediction_step: float,
+        tactical_deconfliction_module: TacticalDeconflictionModule = None,
         processing_time: float = 0.0,
     ):
         if history_window <= 0:
@@ -43,6 +45,7 @@ class TrackingModule:
         self.prediction_horizon = int(prediction_horizon)
         self.prediction_step = float(prediction_step)
         self.processing_time = float(processing_time)
+        self.tactical_deconfliction_module = tactical_deconfliction_module
 
         self.inbox = simpy.Store(env)
         self._report_histories: dict[str, deque[TrackingReport]] = {}
@@ -84,7 +87,23 @@ class TrackingModule:
             prediction_step=self.prediction_step,
         )
         self._predictions[report.uav_name] = prediction
+        if self.tactical_deconfliction_module is not None:
+            self._publish_prediction(prediction)
+        
         return prediction
+
+    def _publish_prediction(self, prediction):
+        message = Message(
+            source=self.name,
+            destination=self.tactical_deconfliction_module.name,
+            message_type=MessageType.TRACK_UPDATE,
+            payload={
+                "track_prediction": prediction,
+            },
+            issue_timestamp=self.env.now,
+        )
+
+        self.network.send(message)
 
     def _store_report(self, report: TrackingReport) -> None:
         history = self._report_histories.get(report.uav_name, ())

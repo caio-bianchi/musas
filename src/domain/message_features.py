@@ -13,3 +13,4 @@ class MessageType(Enum):
     FLIGHT_STARTED = 4
     FLIGHT_COMPLETED = 5
     UPDATE_FLIGHT_PLAN = 6
+    TRACK_UPDATE = 7
