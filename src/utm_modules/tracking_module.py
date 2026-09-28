@@ -5,20 +5,22 @@ from collections import deque
 import simpy
 
 from src.algorithms.interfaces.tracking import TrackingAlgorithm
+from src.core.message import Message
+from src.core.network import CommunicationNetwork
 from src.domain.message_features import MessageType
 from src.domain.tracking import TrackPrediction, TrackingReport
 from src.utm_modules.flight_plan_manager import FlightPlanManager
 from src.utm_modules.tactical_deconfliction_module import TacticalDeconflictionModule
-from src.core.message import Message
+
 
 class TrackingModule:
     """Maintain report histories and coordinate trajectory prediction."""
 
     def __init__(
         self,
-        name,
-        env,
-        network,
+        name: str,
+        env: simpy.Environment,
+        network: CommunicationNetwork,
         flight_plan_manager: FlightPlanManager,
         algorithm: TrackingAlgorithm,
         history_window: int,
@@ -26,7 +28,7 @@ class TrackingModule:
         prediction_step: float,
         tactical_deconfliction_module: TacticalDeconflictionModule | None = None,
         processing_time: float = 0.0,
-    ):
+    ) -> None:
         if history_window <= 0:
             raise ValueError("history_window must be greater than zero")
         if prediction_horizon <= 0:
@@ -63,7 +65,10 @@ class TrackingModule:
             if message.message_type == MessageType.PERIODIC_REPORT:
                 self.process_report(message)
 
-    def process_report(self, message) -> TrackPrediction | None:
+    def process_report(
+        self,
+        message: Message,
+    ) -> TrackPrediction | None:
         report = TrackingReport(
             uav_name=message.source,
             position=list(message.payload["position"]),
@@ -92,7 +97,10 @@ class TrackingModule:
         
         return prediction
 
-    def _publish_prediction(self, prediction):
+    def _publish_prediction(
+        self,
+        prediction: TrackPrediction,
+    ) -> None:
         message = Message(
             source=self.name,
             destination=self.tactical_deconfliction_module.name,

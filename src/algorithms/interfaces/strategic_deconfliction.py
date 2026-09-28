@@ -1,5 +1,10 @@
 from typing import Protocol
 
+from src.airspace.airspace import Airspace
+from src.domain.flight import Conflict, FlightPlan
+from src.domain.message_features import StrategicDecision
+
+
 class StrategicDeconflictionAlgorithm(Protocol):
     """
     Contract for strategic deconfliction algorithms.
@@ -7,9 +12,21 @@ class StrategicDeconflictionAlgorithm(Protocol):
     Any compatible algorithm must implement the deconflict() method.
     """
 
-    def deconflict(self, proposed_flight_plan, conflicts, approved_flight_plans, airspace):
+    def deconflict(
+        self,
+        proposed_flight_plan: FlightPlan,
+        conflicts: list[Conflict],
+        approved_flight_plans: dict[str, FlightPlan],
+        airspace: Airspace,
+    ) -> tuple[
+        StrategicDecision,
+        FlightPlan | None,
+        dict[str, FlightPlan],
+    ]:
         """
-        Predict conflicts between a proposed flight plan and
-        the currently approved flight plans.
+        Attempt to resolve conflicts affecting a proposed flight plan.
+
+        Returns the strategic decision, an optional counterproposal,
+        and updates to other flight plans.
         """
         ...

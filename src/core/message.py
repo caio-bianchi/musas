@@ -1,16 +1,29 @@
+from typing import Any
 from uuid import uuid4
 
-class Message:
-    def __init__(self, source, destination,message_type,payload,issue_timestamp, in_reply_to = None):
-        self.source = source
-        self.destination = destination
-        self.message_type = message_type
-        self.payload = payload
-        self.message_id = str(uuid4())
-        self.issue_timestamp = issue_timestamp
-        self.in_reply_to = in_reply_to
+from src.domain.message_features import MessageType
 
-    def __str__(self):
+
+class Message:
+
+    def __init__(
+        self,
+        source: str,
+        destination: str,
+        message_type: MessageType,
+        payload: dict[str, Any],
+        issue_timestamp: float,
+        in_reply_to: str | None = None,
+    ) -> None:
+        self.source: str = source
+        self.destination: str = destination
+        self.message_type: MessageType = message_type
+        self.payload: dict[str, Any] = payload
+        self.message_id: str = str(uuid4())
+        self.issue_timestamp: float = issue_timestamp
+        self.in_reply_to: str | None = in_reply_to
+
+    def __str__(self) -> str:
         return (
             f"Source: {self.source}\n"
             f"Destination: {self.destination}\n"

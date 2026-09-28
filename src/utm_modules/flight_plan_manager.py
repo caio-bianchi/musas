@@ -1,27 +1,36 @@
 import simpy
-from src.core.message import Message
-from src.domain.message_features import MessageType
+
 from src.airspace.airspace import Airspace
+from src.core.message import Message
+from src.core.network import CommunicationNetwork
+from src.domain.flight import FlightPlan
+from src.domain.message_features import MessageType
 
 
 class FlightPlanManager:
-    def __init__(self, name, env, network, airspace):
+    def __init__(
+        self,
+        name: str,
+        env: simpy.Environment,
+        network: CommunicationNetwork,
+        airspace: Airspace,
+    ) -> None:
         self.name = name
         self.env = env
         self.network = network
         self.airspace = airspace
-        self._approved_flight_plans = {}
-        self._active_flight_plans = {}
-        self._history = {}
+        self._approved_flight_plans: dict[str, FlightPlan] = {}
+        self._active_flight_plans: dict[str, FlightPlan] = {}
+        self._history: dict[str, list[FlightPlan]] = {}
 
         self.inbox = simpy.Store(env)
 
         network.register(self)
 
-    def get_airspace(self):
+    def get_airspace(self) -> Airspace:
         return self.airspace
 
-    def get_airspace_snapshot(self):
+    def get_airspace_snapshot(self) -> Airspace:
         return Airspace(
             obstacles=list(self.airspace.obstacles),
             geofences=list(
@@ -32,7 +41,11 @@ class FlightPlanManager:
             wind_zones=[],
         )
 
-    def approve(self, uav_name, flight_plan):
+    def approve(
+        self,
+        uav_name: str,
+        flight_plan: FlightPlan,
+    ) -> None:
         self._approved_flight_plans[uav_name] = flight_plan
 
         if uav_name not in self._history:
@@ -40,7 +53,7 @@ class FlightPlanManager:
 
         self._history[uav_name].append(flight_plan)
 
-    def activate(self, uav_name):
+    def activate(self, uav_name: str) -> FlightPlan | None:
         flight_plan = self._approved_flight_plans.get(uav_name)
 
         if flight_plan is None:
@@ -49,7 +62,7 @@ class FlightPlanManager:
         self._active_flight_plans[uav_name] = flight_plan
         return flight_plan
 
-    def complete(self, uav_name):
+    def complete(self, uav_name: str) -> FlightPlan | None:
         flight_plan = self._active_flight_plans.pop(uav_name, None)
 
         if flight_plan is None:
@@ -58,19 +71,22 @@ class FlightPlanManager:
         self._approved_flight_plans.pop(uav_name, None)
         return flight_plan
 
-    def get(self, uav_name):
+    def get(self, uav_name: str) -> FlightPlan | None:
         return self._approved_flight_plans.get(uav_name)
 
-    def get_all(self):
+    def get_all(self) -> dict[str, FlightPlan]:
         return self._approved_flight_plans.copy()
 
-    def remove(self, uav_name):
+    def remove(self, uav_name: str) -> FlightPlan | None:
         return self._approved_flight_plans.pop(uav_name, None)
-    
-    def get_history(self, uav_name):
+
+    def get_history(self, uav_name: str) -> list[FlightPlan]:
         return list(self._history.get(uav_name, []))
 
-    def launch_updates(self, updates):
+    def launch_updates(
+        self,
+        updates: dict[str, FlightPlan],
+    ) -> None:
         for uav_name, flight_plan in updates.items():
             self.approve(uav_name, flight_plan)
 

@@ -6,7 +6,11 @@ from src.algorithms.interfaces.tactical_conflict_prediction import (
 from src.algorithms.interfaces.tactical_deconfliction import (
     TacticalDeconflictionAlgorithm,
 )
+from src.core.message import Message
+from src.core.network import CommunicationNetwork
+from src.domain.flight import Conflict, FlightPlan
 from src.domain.message_features import MessageType
+from src.domain.tracking import TrackPrediction
 from src.utm_modules.flight_plan_manager import FlightPlanManager
 
 
@@ -15,14 +19,14 @@ class TacticalDeconflictionModule:
 
     def __init__(
         self,
-        name,
-        env,
-        network,
+        name: str,
+        env: simpy.Environment,
+        network: CommunicationNetwork,
         conflict_prediction_algorithm: TacticalConflictPredictionAlgorithm,
         deconfliction_algorithm: TacticalDeconflictionAlgorithm,
         flight_plan_manager: FlightPlanManager,
-        processing_time=0.0,
-    ):
+        processing_time: float = 0.0,
+    ) -> None:
 
         self.name = name
         self.env = env
@@ -35,10 +39,10 @@ class TacticalDeconflictionModule:
             raise ValueError("processing_time must be non-negative")
 
         self.inbox = simpy.Store(env)
-        self._tracks = {}
-        self._latest_conflicts = []
-        self._issued_updates = {}
-        self._issued_update_history = {}
+        self._tracks: dict[str, TrackPrediction] = {}
+        self._latest_conflicts: list[Conflict] = []
+        self._issued_updates: dict[str, FlightPlan] = {}
+        self._issued_update_history: dict[str, list[FlightPlan]] = {}
 
         network.register(self)
 
@@ -52,7 +56,10 @@ class TacticalDeconflictionModule:
             if message.message_type == MessageType.TRACK_UPDATE:
                 self.process_track_update(message)
 
-    def process_track_update(self, message):
+    def process_track_update(
+        self,
+        message: Message,
+    ) -> dict[str, FlightPlan] | None:
         updated_track = message.payload["track_prediction"]
         current_track = self._tracks.get(updated_track.uav_name)
 
@@ -90,17 +97,20 @@ class TacticalDeconflictionModule:
             self.flight_plan_manager.launch_updates(updates)
         return updates
 
-    def get_track(self, uav_name):
+    def get_track(self, uav_name: str) -> TrackPrediction | None:
         return self._tracks.get(uav_name)
 
-    def get_all_tracks(self):
+    def get_all_tracks(self) -> dict[str, TrackPrediction]:
         return self._tracks.copy()
 
-    def get_latest_conflicts(self):
+    def get_latest_conflicts(self) -> list[Conflict]:
         return list(self._latest_conflicts)
 
-    def get_issued_update(self, uav_name):
+    def get_issued_update(self, uav_name: str) -> FlightPlan | None:
         return self._issued_updates.get(uav_name)
 
-    def get_issued_update_history(self, uav_name):
+    def get_issued_update_history(
+        self,
+        uav_name: str,
+    ) -> list[FlightPlan]:
         return list(self._issued_update_history.get(uav_name, ()))

@@ -1,23 +1,35 @@
 import simpy
-from src.core.message import Message
+
 from src.algorithms.interfaces.strategic_deconfliction import StrategicDeconflictionAlgorithm
+from src.core.message import Message
+from src.core.network import CommunicationNetwork
+from src.domain.flight import FlightPlan
 from src.domain.message_features import MessageType, StrategicDecision
 from src.utm_modules.conflict_predictor import ConflictPredictor
 from src.utm_modules.flight_plan_manager import FlightPlanManager
 
+
 class StrategicDeconflictionModule:
-    def __init__(self, name, env, network, conflict_predictor: ConflictPredictor, algorithm: StrategicDeconflictionAlgorithm, flight_plan_manager: FlightPlanManager):
-            self.name = name
-            self.env = env
-            self.network = network
-            self.inbox = simpy.Store(env)
+    def __init__(
+        self,
+        name: str,
+        env: simpy.Environment,
+        network: CommunicationNetwork,
+        conflict_predictor: ConflictPredictor,
+        algorithm: StrategicDeconflictionAlgorithm,
+        flight_plan_manager: FlightPlanManager,
+    ) -> None:
+        self.name = name
+        self.env = env
+        self.network = network
+        self.inbox = simpy.Store(env)
 
-            self.conflict_predictor = conflict_predictor
-            self.flight_plan_manager = flight_plan_manager
+        self.conflict_predictor = conflict_predictor
+        self.flight_plan_manager = flight_plan_manager
 
-            self.algorithm = algorithm
+        self.algorithm = algorithm
 
-            network.register(self)
+        network.register(self)
 
     def run(self):
         while True:
@@ -39,7 +51,7 @@ class StrategicDeconflictionModule:
                     message.source
                 )
 
-    def _process_proposal(self, proposal):
+    def _process_proposal(self, proposal: Message):
         proposal_id = proposal.message_id
         requesting_uav = proposal.source
         proposed_flight_plan = proposal.payload["flight_plan"]
@@ -49,14 +61,17 @@ class StrategicDeconflictionModule:
             for uav_name, flight_plan
             in self.flight_plan_manager.get_all().items()
             if uav_name != requesting_uav
-        } # All, except the requesting
+        }  # All, except the requesting
 
-        predicted_conflicts = self.conflict_predictor.predict(proposed_flight_plan, approved_snapshot)
+        predicted_conflicts = self.conflict_predictor.predict(
+            proposed_flight_plan,
+            approved_snapshot,
+        )
 
         if not predicted_conflicts:
             decision = StrategicDecision.APPROVE
             counter_proposal = None
-            updates = []
+            updates = {}
 
             self.flight_plan_manager.approve(requesting_uav, proposed_flight_plan)
 
@@ -98,14 +113,18 @@ class StrategicDeconflictionModule:
 
     def _apply_decision(
         self,
-        requesting_uav,
-        proposed_flight_plan,
-        decision,
-        counter_proposal,
-        updates,
-    ):
+        requesting_uav: str,
+        proposed_flight_plan: FlightPlan,
+        decision: StrategicDecision,
+        counter_proposal: FlightPlan | None,
+        updates: dict[str, FlightPlan],
+    ) -> None:
         if decision == StrategicDecision.COUNTER_PROPOSAL:
-            self.flight_plan_manager.approve(requesting_uav, counter_proposal)
+            if counter_proposal is not None:
+                self.flight_plan_manager.approve(
+                    requesting_uav,
+                    counter_proposal,
+                )
 
         elif decision == StrategicDecision.APPROVE:
             self.flight_plan_manager.approve(requesting_uav, proposed_flight_plan)

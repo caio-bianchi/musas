@@ -1,12 +1,28 @@
+from typing import Protocol
+
 import simpy
 
-class CommunicationNetwork:
-    def __init__(self, env, delay=0):
-        self.env = env
-        self.delay = delay
-        self.nodes = {}
+from src.core.message import Message
 
-    def register(self, node):
+
+class CommunicationNode(Protocol):
+    """Contract for nodes connected to the communication network."""
+
+    name: str
+    inbox: simpy.Store
+
+
+class CommunicationNetwork:
+    def __init__(
+        self,
+        env: simpy.Environment,
+        delay: float = 0.0,
+    ) -> None:
+        self.env = env
+        self.delay = float(delay)
+        self.nodes: dict[str, CommunicationNode] = {}
+
+    def register(self, node: CommunicationNode) -> None:
         """
         Enrolls a communication node into the network.
 
@@ -15,7 +31,7 @@ class CommunicationNetwork:
         """
         self.nodes[node.name] = node
 
-    def send(self, message):
+    def send(self, message: Message) -> simpy.events.Process:
         """
         Sends a message through the network.
 
@@ -24,12 +40,8 @@ class CommunicationNetwork:
         """
         return self.env.process(self._transmit(message))
 
-    def _transmit(self, message):
-        print(
-            f"t{self.env.now}: {message.source} sent "
-            f"{message.message_type} to {message.destination} "
-            f"Payload: {message.payload}"
-        )
+    def _transmit(self, message: Message):
+        
 
         yield self.env.timeout(self.delay)
 
@@ -37,9 +49,3 @@ class CommunicationNetwork:
 
         # Every node has an inbox attribute for message passing.
         yield destination.inbox.put(message)
-
-        print(
-            f"t{self.env.now}: {message.message_type} from "
-            f"{message.source} delivered to {message.destination} "
-            f"Payload: {message.payload}"
-        )

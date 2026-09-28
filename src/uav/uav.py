@@ -1,13 +1,23 @@
+from typing import Callable
+
 import simpy
 from enum import Enum
 
+from src.algorithms.defaults.perfect_sensor import PerfectSensor
+from src.algorithms.interfaces.dynamics import DynamicsAlgorithm
+from src.algorithms.interfaces.guidance import GuidanceAlgorithm
+from src.algorithms.interfaces.sensor_model import SensorModel
 from src.core.message import Message
+from src.core.network import CommunicationNetwork
+from src.domain.flight import FlightPlan
+from src.domain.message_features import MessageType, StrategicDecision
 from src.uav.uav_dynamics import UAVDynamics
 from src.uav.uav_guidance import UAVGuidance
-from src.domain.message_features import MessageType, StrategicDecision
-from src.algorithms.defaults.perfect_sensor import PerfectSensor
-from src.algorithms.interfaces.sensor_model import SensorModel
-from src.utm_modules.strategic_deconflicition_module import StrategicDeconflictionModule
+from src.utm_modules.strategic_deconflicition_module import (
+    StrategicDeconflictionModule,
+)
+from src.utm_modules.tracking_module import TrackingModule
+
 
 class UAVStatus(Enum):
     INACTIVE = 1
@@ -17,6 +27,7 @@ class UAVStatus(Enum):
     COMPLETED = 5
     WAITING_DEPARTURE = 6
 
+
 class UAV:
     """
     Represents a UAV node in the simulation.
@@ -24,17 +35,19 @@ class UAV:
 
     def __init__(
         self,
-        name,
-        env,
-        network,
-        position,
-        dynamics_algorithm,
-        guidance_algorithm,
+        name: str,
+        env: simpy.Environment,
+        network: CommunicationNetwork,
+        position: list[float],
+        dynamics_algorithm: DynamicsAlgorithm,
+        guidance_algorithm: GuidanceAlgorithm,
         strategic_deconfliction_module: StrategicDeconflictionModule,
-        waypoint_acceptance_radius=1.0,
-        environmental_velocity_provider=None,
+        waypoint_acceptance_radius: float = 1.0,
+        environmental_velocity_provider: (
+            Callable | None
+        ) = None,
         sensor_model: SensorModel | None = None,
-    ):
+    ) -> None:
         self.name = name
         self.env = env
         self.network = network
@@ -50,7 +63,10 @@ class UAV:
             waypoint_acceptance_radius=waypoint_acceptance_radius,
         )
 
-        self.strategic_deconfliction_module = strategic_deconfliction_module
+        self.strategic_deconfliction_module = (
+            strategic_deconfliction_module
+        )
+
         self.sensor_model = (
             PerfectSensor()
             if sensor_model is None
@@ -59,12 +75,16 @@ class UAV:
 
         self.inbox = simpy.Store(env)
 
-        self.status = UAVStatus.INACTIVE
-        self.pending_proposals = {}
+        self.status: UAVStatus = UAVStatus.INACTIVE
+        self.pending_proposals: dict[str, dict] = {}
 
         self.network.register(self)
 
-    def send_periodic_reports(self, tracking_module, update_interval,):
+    def send_periodic_reports(
+        self,
+        tracking_module: TrackingModule,
+        update_interval: float,
+    ):
         while True:
             measurement = self.sensor_model.measure(
                 position=self.dynamics.position,
@@ -80,12 +100,16 @@ class UAV:
             )
 
             self.network.send(message)
+
             yield self.env.timeout(update_interval)
 
-    def send_flight_plan(self, flight_plan):
+    def send_flight_plan(
+        self,
+        flight_plan: FlightPlan,
+    ) -> None:
         proposal = Message(
-            source = self.name,
-            destination = self.strategic_deconfliction_module.name,
+            source=self.name,
+            destination=self.strategic_deconfliction_module.name,
             message_type=MessageType.PROPOSAL,
             payload={
                 "flight_plan": flight_plan,
@@ -108,46 +132,69 @@ class UAV:
 
             self._handle_message(message)
 
-    def _handle_message(self, message):
+    def _handle_message(
+        self,
+        message: Message,
+    ) -> None:
         if message.message_type == MessageType.SD_RESPONSE:
             self._handle_SD_response(message)
 
         if message.message_type == MessageType.UPDATE_FLIGHT_PLAN:
             self._handle_update_flight_plan(message)
 
-    def _handle_SD_response(self, message):
+    def _handle_SD_response(
+        self,
+        message: Message,
+    ) -> None:
         decision = message.payload["decision"]
 
         if decision == StrategicDecision.APPROVE:
-            pending = self.pending_proposals.get(message.in_reply_to)
+            pending = self.pending_proposals.get(
+                message.in_reply_to
+            )
             flight_plan = pending["flight_plan"]
 
             self.load_flight_plan(flight_plan)
 
         elif decision == StrategicDecision.COUNTER_PROPOSAL:
-            self.load_flight_plan(message.payload["counter_proposal"])
+            self.load_flight_plan(
+                message.payload["counter_proposal"]
+            )
 
         elif decision == StrategicDecision.REJECT:
             self.status = UAVStatus.FLIGHT_PLAN_REJECTED
 
-        self.pending_proposals.pop(message.in_reply_to, None,)
+        self.pending_proposals.pop(
+            message.in_reply_to,
+            None,
+        )
 
-    def _handle_update_flight_plan(self, message):
+    def _handle_update_flight_plan(
+        self,
+        message: Message,
+    ) -> None:
         new_flight_plan = message.payload["new_flight_plan"]
 
         if self.status == UAVStatus.ACTIVE:
-            # A tactical update changes the remaining route; it must not reset
-            # the physical state of an aircraft that is already flying.
+            # A tactical update changes the remaining route; it must not
+            # reset the physical state of an aircraft already flying.
             self.guidance.load_flight_plan(new_flight_plan)
         else:
             self.load_flight_plan(new_flight_plan)
 
-    def load_flight_plan(self, flight_plan,):
+    def load_flight_plan(
+        self,
+        flight_plan: FlightPlan,
+    ) -> None:
         first_waypoint = flight_plan.waypoint_list[0]
-        
-        self.dynamics.reset(position=first_waypoint.position())
 
-        self.guidance.load_flight_plan(flight_plan=flight_plan)
+        self.dynamics.reset(
+            position=first_waypoint.position()
+        )
+
+        self.guidance.load_flight_plan(
+            flight_plan=flight_plan
+        )
 
         if self.env.now >= first_waypoint.t:
             self.status = UAVStatus.ACTIVE
@@ -155,11 +202,15 @@ class UAV:
         else:
             self.status = UAVStatus.WAITING_DEPARTURE
 
-    def fly(self, update_interval=0.1):
+    def fly(
+        self,
+        update_interval: float = 0.1,
+    ):
         while True:
             if self.status == UAVStatus.WAITING_DEPARTURE:
                 departure_time = (
-                    self.guidance.flight_plan
+                    self.guidance
+                    .flight_plan
                     .waypoint_list[0]
                     .t
                 )
@@ -169,11 +220,13 @@ class UAV:
                     self._notify_activation()
 
             if self.status == UAVStatus.ACTIVE:
-                commanded_velocity = self.guidance.calculate_commanded_velocity(
+                commanded_velocity = (
+                    self.guidance.calculate_commanded_velocity(
                         current_position=self.dynamics.position,
                         current_time=self.env.now,
                     )
-                
+                )
+
                 self.dynamics.update(
                     commanded_velocity=commanded_velocity,
                     dt=update_interval,
@@ -185,7 +238,7 @@ class UAV:
 
             yield self.env.timeout(update_interval)
 
-    def _complete_flight_plan(self):
+    def _complete_flight_plan(self) -> None:
         self.status = UAVStatus.COMPLETED
 
         message = Message(
@@ -198,7 +251,7 @@ class UAV:
 
         self.network.send(message)
 
-    def _notify_activation(self):
+    def _notify_activation(self) -> None:
         message = Message(
             source=self.name,
             destination=self.strategic_deconfliction_module.name,

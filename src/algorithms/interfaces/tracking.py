@@ -3,9 +3,10 @@ from typing import Protocol, Sequence
 from src.domain.flight import FlightPlan
 from src.domain.tracking import TrackPrediction, TrackingReport
 
+
 class TrackingAlgorithm(Protocol):
     """
-    Contract for tracking algorithm.
+    Contract for tracking algorithms.
 
     Any compatible algorithm must implement the predict() method.
     """
@@ -19,4 +20,10 @@ class TrackingAlgorithm(Protocol):
         prediction_horizon: int,
         prediction_step: float,
     ) -> TrackPrediction:
+        """
+        Estimate the current UAV state and predict its future states.
+
+        prediction_horizon is the number of future time steps.
+        prediction_step is the duration of each time step.
+        """
         ...
