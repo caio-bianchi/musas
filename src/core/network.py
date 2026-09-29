@@ -4,7 +4,7 @@ from pathlib import Path
 import simpy
 
 from src.core.message import Message
-from src.core.simulation_logger import SimulationLogger
+from src.core.simulation_logger import SimulationEvent, SimulationLogger
 from src.domain.message_features import MessageType
 
 
@@ -20,6 +20,7 @@ class CommunicationNetwork:
         self.env = env
         self.delay = float(delay)
         self.nodes: dict[str, CommunicationNode] = {}
+        self.event_history: list[SimulationEvent] = []
         self.simulation_logger = (
             SimulationLogger(env, log_file)
             if log_file is not None
@@ -33,12 +34,24 @@ class CommunicationNetwork:
         )
 
     def log_event(self,component: str,event: str,**details) -> None:
+        self.event_history.append(
+            SimulationEvent(
+                timestamp=float(self.env.now),
+                component=component,
+                event=event,
+                details=dict(details),
+            )
+        )
         if self.simulation_logger is not None:
             self.simulation_logger.log(
                 component=component,
                 event=event,
                 **details,
             )
+
+    def get_event_history(self) -> list[SimulationEvent]:
+        """Return a copy of the structured simulation event history."""
+        return list(self.event_history)
 
     def register(self, node: CommunicationNode) -> None:
         """

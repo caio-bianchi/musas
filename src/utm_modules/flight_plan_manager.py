@@ -48,10 +48,12 @@ class FlightPlanManager:
             self._history[uav_name] = []
 
         self._history[uav_name].append(flight_plan)
+        plan_version = len(self._history[uav_name]) - 1
         self.network.log_event(
             component=self.name,
             event="FLIGHT_PLAN_APPROVED",
             uav=uav_name,
+            plan_version=plan_version,
             waypoint_count=len(flight_plan.waypoint_list),
         )
 

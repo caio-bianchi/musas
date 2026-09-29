@@ -1,7 +1,18 @@
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import simpy
+
+
+@dataclass(frozen=True)
+class SimulationEvent:
+    """Structured event emitted while a simulation is running."""
+
+    timestamp: float
+    component: str
+    event: str
+    details: dict[str, Any]
 
 
 class SimulationLogger:
