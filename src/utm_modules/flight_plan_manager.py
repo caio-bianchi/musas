@@ -41,11 +41,7 @@ class FlightPlanManager:
             wind_zones=[],
         )
 
-    def approve(
-        self,
-        uav_name: str,
-        flight_plan: FlightPlan,
-    ) -> None:
+    def approve(self, uav_name: str, flight_plan: FlightPlan) -> None:
         self._approved_flight_plans[uav_name] = flight_plan
 
         if uav_name not in self._history:
@@ -83,10 +79,7 @@ class FlightPlanManager:
     def get_history(self, uav_name: str) -> list[FlightPlan]:
         return list(self._history.get(uav_name, []))
 
-    def launch_updates(
-        self,
-        updates: dict[str, FlightPlan],
-    ) -> None:
+    def launch_updates(self, updates: dict[str, FlightPlan]) -> None:
         for uav_name, flight_plan in updates.items():
             self.approve(uav_name, flight_plan)
 

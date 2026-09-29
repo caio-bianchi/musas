@@ -1,11 +1,13 @@
 import simpy
 
+from src.algorithms.interfaces.conflict_prediction import (
+    ConflictPredictionAlgorithm,
+)
 from src.algorithms.interfaces.strategic_deconfliction import StrategicDeconflictionAlgorithm
 from src.core.message import Message
 from src.core.network import CommunicationNetwork
 from src.domain.flight import FlightPlan
 from src.domain.message_features import MessageType, StrategicDecision
-from src.utm_modules.conflict_predictor import ConflictPredictor
 from src.utm_modules.flight_plan_manager import FlightPlanManager
 
 
@@ -15,8 +17,8 @@ class StrategicDeconflictionModule:
         name: str,
         env: simpy.Environment,
         network: CommunicationNetwork,
-        conflict_predictor: ConflictPredictor,
-        algorithm: StrategicDeconflictionAlgorithm,
+        conflict_prediction_algorithm: ConflictPredictionAlgorithm,
+        deconfliction_algorithm: StrategicDeconflictionAlgorithm,
         flight_plan_manager: FlightPlanManager,
     ) -> None:
         self.name = name
@@ -24,10 +26,9 @@ class StrategicDeconflictionModule:
         self.network = network
         self.inbox = simpy.Store(env)
 
-        self.conflict_predictor = conflict_predictor
+        self.conflict_prediction_algorithm = conflict_prediction_algorithm
+        self.deconfliction_algorithm = deconfliction_algorithm
         self.flight_plan_manager = flight_plan_manager
-
-        self.algorithm = algorithm
 
         network.register(self)
 
@@ -63,9 +64,13 @@ class StrategicDeconflictionModule:
             if uav_name != requesting_uav
         }  # All, except the requesting
 
-        predicted_conflicts = self.conflict_predictor.predict(
-            proposed_flight_plan,
-            approved_snapshot,
+        airspace_snapshot = (
+            self.flight_plan_manager.get_airspace_snapshot()
+        )
+        predicted_conflicts = self.conflict_prediction_algorithm.predict(
+            proposed_flight_plan=proposed_flight_plan,
+            approved_flight_plans=approved_snapshot,
+            airspace=airspace_snapshot,
         )
 
         if not predicted_conflicts:
@@ -76,12 +81,8 @@ class StrategicDeconflictionModule:
             self.flight_plan_manager.approve(requesting_uav, proposed_flight_plan)
 
         else:
-            airspace_snapshot = (
-                self.flight_plan_manager.get_airspace_snapshot()
-            )
-
             decision, counter_proposal, updates = (
-                self.algorithm.deconflict(
+                self.deconfliction_algorithm.deconflict(
                     proposed_flight_plan=proposed_flight_plan,
                     conflicts=predicted_conflicts,
                     approved_flight_plans=approved_snapshot,

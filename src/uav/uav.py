@@ -132,10 +132,7 @@ class UAV:
 
             self._handle_message(message)
 
-    def _handle_message(
-        self,
-        message: Message,
-    ) -> None:
+    def _handle_message(self, message: Message) -> None:
         if message.message_type == MessageType.SD_RESPONSE:
             self._handle_SD_response(message)
 
@@ -182,10 +179,7 @@ class UAV:
         else:
             self.load_flight_plan(new_flight_plan)
 
-    def load_flight_plan(
-        self,
-        flight_plan: FlightPlan,
-    ) -> None:
+    def load_flight_plan(self, flight_plan: FlightPlan) -> None:
         first_waypoint = flight_plan.waypoint_list[0]
 
         self.dynamics.reset(
@@ -202,10 +196,7 @@ class UAV:
         else:
             self.status = UAVStatus.WAITING_DEPARTURE
 
-    def fly(
-        self,
-        update_interval: float = 0.1,
-    ):
+    def fly(self, update_interval: float = 0.1):
         while True:
             if self.status == UAVStatus.WAITING_DEPARTURE:
                 departure_time = (

@@ -25,7 +25,7 @@ class TacticalDeconflictionModule:
         conflict_prediction_algorithm: TacticalConflictPredictionAlgorithm,
         deconfliction_algorithm: TacticalDeconflictionAlgorithm,
         flight_plan_manager: FlightPlanManager,
-        processing_time: float = 0.0,
+        processing_time: float = 0.0
     ) -> None:
 
         self.name = name
