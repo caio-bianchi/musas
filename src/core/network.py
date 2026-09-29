@@ -1,8 +1,11 @@
 from typing import Protocol
+from pathlib import Path
 
 import simpy
 
 from src.core.message import Message
+from src.core.simulation_logger import SimulationLogger
+from src.domain.message_features import MessageType
 
 
 class CommunicationNode(Protocol):
@@ -13,14 +16,29 @@ class CommunicationNode(Protocol):
 
 
 class CommunicationNetwork:
-    def __init__(
-        self,
-        env: simpy.Environment,
-        delay: float = 0.0,
-    ) -> None:
+    def __init__(self,env: simpy.Environment,delay: float = 0.0,log_file: str | Path | None = None) -> None:
         self.env = env
         self.delay = float(delay)
         self.nodes: dict[str, CommunicationNode] = {}
+        self.simulation_logger = (
+            SimulationLogger(env, log_file)
+            if log_file is not None
+            else None
+        )
+
+        self.log_event(
+            component="Network",
+            event="SIMULATION_LOG_STARTED",
+            file=log_file,
+        )
+
+    def log_event(self,component: str,event: str,**details) -> None:
+        if self.simulation_logger is not None:
+            self.simulation_logger.log(
+                component=component,
+                event=event,
+                **details,
+            )
 
     def register(self, node: CommunicationNode) -> None:
         """
@@ -30,6 +48,11 @@ class CommunicationNetwork:
         such as a deconfliction module or tracking module.
         """
         self.nodes[node.name] = node
+        self.log_event(
+            component="Network",
+            event="NODE_REGISTERED",
+            node=node.name,
+        )
 
     def send(self, message: Message) -> simpy.events.Process:
         """
@@ -41,7 +64,19 @@ class CommunicationNetwork:
         return self.env.process(self._transmit(message))
 
     def _transmit(self, message: Message):
-        
+        should_log_message = message.message_type not in {
+            MessageType.PERIODIC_REPORT,
+            MessageType.TRACK_UPDATE,
+        }
+        if should_log_message:
+            self.log_event(
+                component="Network",
+                event="MESSAGE_SENT",
+                source=message.source,
+                destination=message.destination,
+                message_type=message.message_type.name,
+                message_id=message.message_id,
+            )
 
         yield self.env.timeout(self.delay)
 
@@ -49,3 +84,13 @@ class CommunicationNetwork:
 
         # Every node has an inbox attribute for message passing.
         yield destination.inbox.put(message)
+
+        if should_log_message:
+            self.log_event(
+                component="Network",
+                event="MESSAGE_DELIVERED",
+                source=message.source,
+                destination=message.destination,
+                message_type=message.message_type.name,
+                message_id=message.message_id,
+            )

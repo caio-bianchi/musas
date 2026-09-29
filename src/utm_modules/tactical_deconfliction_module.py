@@ -56,17 +56,11 @@ class TacticalDeconflictionModule:
             if message.message_type == MessageType.TRACK_UPDATE:
                 self.process_track_update(message)
 
-    def process_track_update(
-        self,
-        message: Message,
-    ) -> dict[str, FlightPlan] | None:
+    def process_track_update(self, message: Message) -> dict[str, FlightPlan] | None:
         updated_track = message.payload["track_prediction"]
         current_track = self._tracks.get(updated_track.uav_name)
 
-        if (
-            current_track is not None
-            and updated_track.generated_at < current_track.generated_at
-        ):
+        if (current_track is not None and updated_track.generated_at < current_track.generated_at):
             return None
 
         self._tracks[updated_track.uav_name] = updated_track
@@ -82,6 +76,13 @@ class TacticalDeconflictionModule:
         if not conflicts:
             return None
 
+        self.network.log_event(
+            component=self.name,
+            event="TACTICAL_CONFLICTS_DETECTED",
+            uav=updated_track.uav_name,
+            conflict_count=len(conflicts),
+        )
+
         updates = self.deconfliction_algorithm.deconflict(
             conflicts=conflicts,
             tracks=self.get_all_tracks(),
@@ -89,6 +90,11 @@ class TacticalDeconflictionModule:
             airspace=airspace,
         )
         if updates:
+            self.network.log_event(
+                component=self.name,
+                event="TACTICAL_UPDATES_ISSUED",
+                uavs=list(updates),
+            )
             self._issued_updates.update(updates)
             for uav_name, flight_plan in updates.items():
                 self._issued_update_history.setdefault(uav_name, []).append(
@@ -109,8 +115,5 @@ class TacticalDeconflictionModule:
     def get_issued_update(self, uav_name: str) -> FlightPlan | None:
         return self._issued_updates.get(uav_name)
 
-    def get_issued_update_history(
-        self,
-        uav_name: str,
-    ) -> list[FlightPlan]:
+    def get_issued_update_history(self, uav_name: str) -> list[FlightPlan]:
         return list(self._issued_update_history.get(uav_name, ()))

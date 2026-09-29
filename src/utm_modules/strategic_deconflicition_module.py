@@ -56,6 +56,12 @@ class StrategicDeconflictionModule:
         proposal_id = proposal.message_id
         requesting_uav = proposal.source
         proposed_flight_plan = proposal.payload["flight_plan"]
+        self.network.log_event(
+            component=self.name,
+            event="PROPOSAL_RECEIVED",
+            uav=requesting_uav,
+            proposal_id=proposal_id,
+        )
 
         approved_snapshot = {
             uav_name: flight_plan
@@ -71,6 +77,12 @@ class StrategicDeconflictionModule:
             proposed_flight_plan=proposed_flight_plan,
             approved_flight_plans=approved_snapshot,
             airspace=airspace_snapshot,
+        )
+        self.network.log_event(
+            component=self.name,
+            event="CONFLICT_PREDICTION_COMPLETED",
+            uav=requesting_uav,
+            conflict_count=len(predicted_conflicts),
         )
 
         if not predicted_conflicts:
@@ -97,6 +109,14 @@ class StrategicDeconflictionModule:
                 counter_proposal=counter_proposal,
                 updates=updates,
             )
+
+        self.network.log_event(
+            component=self.name,
+            event="STRATEGIC_DECISION_MADE",
+            uav=requesting_uav,
+            decision=decision.value,
+            update_count=len(updates),
+        )
 
         final_response = Message(
             source=self.name,

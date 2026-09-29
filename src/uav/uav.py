@@ -124,6 +124,12 @@ class UAV:
 
         self.status = UAVStatus.WAITING_FLIGHT_PLAN
 
+        self.network.log_event(
+            component=self.name,
+            event="FLIGHT_PLAN_PROPOSED",
+            proposal_id=proposal.message_id,
+        )
+
         self.network.send(proposal)
 
     def receive_messages(self):
@@ -161,6 +167,12 @@ class UAV:
         elif decision == StrategicDecision.REJECT:
             self.status = UAVStatus.FLIGHT_PLAN_REJECTED
 
+        self.network.log_event(
+            component=self.name,
+            event="STRATEGIC_RESPONSE_RECEIVED",
+            decision=decision.value,
+        )
+
         self.pending_proposals.pop(
             message.in_reply_to,
             None,
@@ -176,6 +188,10 @@ class UAV:
             # A tactical update changes the remaining route; it must not
             # reset the physical state of an aircraft already flying.
             self.guidance.load_flight_plan(new_flight_plan)
+            self.network.log_event(
+                component=self.name,
+                event="ACTIVE_FLIGHT_PLAN_UPDATED",
+            )
         else:
             self.load_flight_plan(new_flight_plan)
 
@@ -195,6 +211,11 @@ class UAV:
             self._notify_activation()
         else:
             self.status = UAVStatus.WAITING_DEPARTURE
+            self.network.log_event(
+                component=self.name,
+                event="WAITING_FOR_DEPARTURE",
+                departure_time=first_waypoint.t,
+            )
 
     def fly(self, update_interval: float = 0.1):
         while True:
@@ -231,6 +252,11 @@ class UAV:
 
     def _complete_flight_plan(self) -> None:
         self.status = UAVStatus.COMPLETED
+        self.network.log_event(
+            component=self.name,
+            event="FLIGHT_COMPLETED",
+            position=self.dynamics.position,
+        )
 
         message = Message(
             source=self.name,
@@ -243,6 +269,12 @@ class UAV:
         self.network.send(message)
 
     def _notify_activation(self) -> None:
+        self.network.log_event(
+            component=self.name,
+            event="FLIGHT_STARTED",
+            position=self.dynamics.position,
+        )
+
         message = Message(
             source=self.name,
             destination=self.strategic_deconfliction_module.name,
