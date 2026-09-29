@@ -1,4 +1,4 @@
-from src.domain.flight import Waypoint
+from __future__ import annotations
 
 class Conflict():
     """
@@ -31,7 +31,7 @@ class Waypoint:
     def position(self)->list[float]:
         return [self.x, self.y, self.z]
 
-    def __str__(self)->None:
+    def __str__(self) -> str:
         return f"[{self.x}, {self.y}, {self.z}, {self.t}]"
 
     def __lt__(self, other: Waypoint) -> bool:

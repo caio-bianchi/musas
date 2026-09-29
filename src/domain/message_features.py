@@ -1,5 +1,4 @@
 from enum import Enum
-from src.core.message import Message
 
 class StrategicDecision(Enum):
     APPROVE = "APPROVE"
