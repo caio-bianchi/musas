@@ -20,6 +20,9 @@ from src.algorithms.interfaces.tactical_deconfliction import (
     TacticalDeconflictionAlgorithm,
 )
 from src.algorithms.interfaces.tracking import TrackingAlgorithm
+from src.algorithms.defaults.dummy_strategic_deconfliction import (
+    DummyStrategicDeconfliction,
+)
 from src.core.network import CommunicationNetwork
 from src.domain.flight import FlightPlan
 from src.domain.tracking import TrackPrediction, TrackingReport
@@ -49,8 +52,12 @@ class Simulation:
     def __init__(
         self,
         airspace: Airspace,
-        strategic_conflict_prediction_algorithm: ConflictPredictionAlgorithm,
-        strategic_deconfliction_algorithm: StrategicDeconflictionAlgorithm,
+        strategic_conflict_prediction_algorithm: (
+            ConflictPredictionAlgorithm | None
+        ) = None,
+        strategic_deconfliction_algorithm: (
+            StrategicDeconflictionAlgorithm | None
+        ) = None,
         tracking_algorithm: TrackingAlgorithm | None = None,
         tactical_conflict_prediction_algorithm: (
             TacticalConflictPredictionAlgorithm | None
@@ -79,6 +86,33 @@ class Simulation:
             )
         if report_interval <= 0:
             raise ValueError("report_interval must be greater than zero")
+
+        strategic_algorithms = (
+            strategic_conflict_prediction_algorithm,
+            strategic_deconfliction_algorithm,
+        )
+        if not any(
+            algorithm is not None for algorithm in strategic_algorithms
+        ):
+            dummy_strategic_deconfliction = (
+                DummyStrategicDeconfliction()
+            )
+            strategic_conflict_prediction_algorithm = (
+                dummy_strategic_deconfliction
+            )
+            strategic_deconfliction_algorithm = (
+                dummy_strategic_deconfliction
+            )
+            strategic_deconfliction_enabled = False
+        elif not all(
+            algorithm is not None for algorithm in strategic_algorithms
+        ):
+            raise ValueError(
+                "both strategic algorithms must be provided together, "
+                "or both must be None"
+            )
+        else:
+            strategic_deconfliction_enabled = True
 
         tactical_algorithms = (
             tactical_conflict_prediction_algorithm,
@@ -116,6 +150,9 @@ class Simulation:
             "prediction_step": float(prediction_step),
             "tracking_processing_time": float(tracking_processing_time),
             "tactical_processing_time": float(tactical_processing_time),
+            "strategic_deconfliction_enabled": (
+                strategic_deconfliction_enabled
+            ),
             "strategic_conflict_prediction_algorithm": _type_name(
                 strategic_conflict_prediction_algorithm
             ),
