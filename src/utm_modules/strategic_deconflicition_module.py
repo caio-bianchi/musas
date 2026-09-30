@@ -6,6 +6,7 @@ from src.algorithms.interfaces.conflict_prediction import (
 from src.algorithms.interfaces.strategic_deconfliction import StrategicDeconflictionAlgorithm
 from src.core.message import Message
 from src.core.network import CommunicationNetwork
+from src.core.processing_time import ProcessingTime, processing_time_config
 from src.domain.flight import FlightPlan
 from src.domain.message_features import MessageType, StrategicDecision
 from src.utm_modules.flight_plan_manager import FlightPlanManager
@@ -20,6 +21,7 @@ class StrategicDeconflictionModule:
         conflict_prediction_algorithm: ConflictPredictionAlgorithm,
         deconfliction_algorithm: StrategicDeconflictionAlgorithm,
         flight_plan_manager: FlightPlanManager,
+        processing_time: float | ProcessingTime = 0.0,
     ) -> None:
         self.name = name
         self.env = env
@@ -29,6 +31,7 @@ class StrategicDeconflictionModule:
         self.conflict_prediction_algorithm = conflict_prediction_algorithm
         self.deconfliction_algorithm = deconfliction_algorithm
         self.flight_plan_manager = flight_plan_manager
+        self.processing_time = processing_time_config(processing_time)
 
         network.register(self)
 
@@ -62,6 +65,12 @@ class StrategicDeconflictionModule:
             uav=requesting_uav,
             proposal_id=proposal_id,
         )
+
+        delay = self.processing_time.calculate(
+            self._processing_context(proposal)
+        )
+        if delay:
+            yield self.env.timeout(delay)
 
         approved_snapshot = {
             uav_name: flight_plan
@@ -131,6 +140,22 @@ class StrategicDeconflictionModule:
         )
 
         yield self.network.send(final_response)
+
+    def _processing_context(self, proposal: Message) -> dict[str, object]:
+        flight_plan = proposal.payload["flight_plan"]
+        airspace = self.flight_plan_manager.get_airspace_snapshot()
+        return {
+            "module": self.name,
+            "message": proposal,
+            "uav_name": proposal.source,
+            "queue_length": len(self.inbox.items),
+            "approved_flight_plan_count": len(
+                self.flight_plan_manager.get_all()
+            ),
+            "waypoint_count": len(flight_plan.waypoint_list),
+            "obstacle_count": len(airspace.obstacles),
+            "geofence_count": len(airspace.geofences),
+        }
 
     def _apply_decision(
         self,

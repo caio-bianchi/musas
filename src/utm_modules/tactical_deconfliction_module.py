@@ -8,6 +8,7 @@ from src.algorithms.interfaces.tactical_deconfliction import (
 )
 from src.core.message import Message
 from src.core.network import CommunicationNetwork
+from src.core.processing_time import ProcessingTime, processing_time_config
 from src.domain.flight import Conflict, FlightPlan
 from src.domain.message_features import MessageType
 from src.domain.tracking import TrackPrediction
@@ -25,7 +26,7 @@ class TacticalDeconflictionModule:
         conflict_prediction_algorithm: TacticalConflictPredictionAlgorithm,
         deconfliction_algorithm: TacticalDeconflictionAlgorithm,
         flight_plan_manager: FlightPlanManager,
-        processing_time: float = 0.0
+        processing_time: float | ProcessingTime = 0.0,
     ) -> None:
 
         self.name = name
@@ -34,9 +35,7 @@ class TacticalDeconflictionModule:
         self.conflict_prediction_algorithm = conflict_prediction_algorithm
         self.deconfliction_algorithm = deconfliction_algorithm
         self.flight_plan_manager = flight_plan_manager
-        self.processing_time = float(processing_time)
-        if self.processing_time < 0:
-            raise ValueError("processing_time must be non-negative")
+        self.processing_time = processing_time_config(processing_time)
 
         self.inbox = simpy.Store(env)
         self._tracks: dict[str, TrackPrediction] = {}
@@ -50,11 +49,26 @@ class TacticalDeconflictionModule:
         while True:
             message = yield self.inbox.get()
 
-            if self.processing_time:
-                yield self.env.timeout(self.processing_time)
-
             if message.message_type == MessageType.TRACK_UPDATE:
+                delay = self.processing_time.calculate(
+                    self._processing_context(message)
+                )
+                if delay:
+                    yield self.env.timeout(delay)
                 self.process_track_update(message)
+
+    def _processing_context(self, message: Message) -> dict[str, object]:
+        updated_track = message.payload["track_prediction"]
+        incoming_uav_is_new = updated_track.uav_name not in self._tracks
+        return {
+            "module": self.name,
+            "message": message,
+            "uav_name": updated_track.uav_name,
+            "queue_length": len(self.inbox.items),
+            "track_count": len(self._tracks) + int(incoming_uav_is_new),
+            "flight_plan_count": len(self.flight_plan_manager.get_all()),
+            "predicted_state_count": len(updated_track.predicted_states),
+        }
 
     def process_track_update(self, message: Message) -> dict[str, FlightPlan] | None:
         updated_track = message.payload["track_prediction"]

@@ -24,6 +24,7 @@ from src.algorithms.defaults.dummy_strategic_deconfliction import (
     DummyStrategicDeconfliction,
 )
 from src.core.network import CommunicationNetwork
+from src.core.processing_time import ProcessingTime, processing_time_config
 from src.domain.flight import FlightPlan
 from src.domain.tracking import TrackPrediction, TrackingReport
 from src.uav.uav import UAV, UAVStatus
@@ -44,6 +45,16 @@ def _type_name(value) -> str | None:
         return None
     value_type = type(value)
     return f"{value_type.__module__}.{value_type.__qualname__}"
+
+
+def _callable_name(value) -> str | None:
+    if value is None:
+        return None
+    module = getattr(value, "__module__", None)
+    qualname = getattr(value, "__qualname__", None)
+    if module is not None and qualname is not None:
+        return f"{module}.{qualname}"
+    return _type_name(value)
 
 
 class Simulation:
@@ -72,8 +83,9 @@ class Simulation:
         history_window: int = 6,
         prediction_horizon: int = 10,
         prediction_step: float = 0.5,
-        tracking_processing_time: float = 0.0,
-        tactical_processing_time: float = 0.0,
+        strategic_processing_time: float | ProcessingTime = 0.0,
+        tracking_processing_time: float | ProcessingTime = 0.0,
+        tactical_processing_time: float | ProcessingTime = 0.0,
         log_file: str | Path | None = None,
     ) -> None:
         if network_delay < 0:
@@ -86,6 +98,16 @@ class Simulation:
             )
         if report_interval <= 0:
             raise ValueError("report_interval must be greater than zero")
+
+        strategic_processing = processing_time_config(
+            strategic_processing_time
+        )
+        tracking_processing = processing_time_config(
+            tracking_processing_time
+        )
+        tactical_processing = processing_time_config(
+            tactical_processing_time
+        )
 
         strategic_algorithms = (
             strategic_conflict_prediction_algorithm,
@@ -148,8 +170,33 @@ class Simulation:
             "history_window": int(history_window),
             "prediction_horizon": int(prediction_horizon),
             "prediction_step": float(prediction_step),
-            "tracking_processing_time": float(tracking_processing_time),
-            "tactical_processing_time": float(tactical_processing_time),
+            "strategic_processing_mode": strategic_processing.mode.value,
+            "strategic_processing_time": (
+                strategic_processing.fixed_time
+                if strategic_processing.model is None
+                else None
+            ),
+            "strategic_processing_model": _callable_name(
+                strategic_processing.model
+            ),
+            "tracking_processing_mode": tracking_processing.mode.value,
+            "tracking_processing_time": (
+                tracking_processing.fixed_time
+                if tracking_processing.model is None
+                else None
+            ),
+            "tracking_processing_model": _callable_name(
+                tracking_processing.model
+            ),
+            "tactical_processing_mode": tactical_processing.mode.value,
+            "tactical_processing_time": (
+                tactical_processing.fixed_time
+                if tactical_processing.model is None
+                else None
+            ),
+            "tactical_processing_model": _callable_name(
+                tactical_processing.model
+            ),
             "strategic_deconfliction_enabled": (
                 strategic_deconfliction_enabled
             ),
@@ -183,6 +230,7 @@ class Simulation:
             ),
             deconfliction_algorithm=strategic_deconfliction_algorithm,
             flight_plan_manager=self.flight_plan_manager,
+            processing_time=strategic_processing,
         )
 
         self.tactical_module = None
@@ -196,7 +244,7 @@ class Simulation:
                 ),
                 deconfliction_algorithm=tactical_deconfliction_algorithm,
                 flight_plan_manager=self.flight_plan_manager,
-                processing_time=tactical_processing_time,
+                processing_time=tactical_processing,
             )
 
         self.tracking_module = None
@@ -211,7 +259,7 @@ class Simulation:
                 prediction_horizon=prediction_horizon,
                 prediction_step=prediction_step,
                 tactical_deconfliction_module=self.tactical_module,
-                processing_time=tracking_processing_time,
+                processing_time=tracking_processing,
             )
 
         self.uavs: dict[str, UAV] = {}

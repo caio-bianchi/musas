@@ -7,6 +7,7 @@ import simpy
 from src.algorithms.interfaces.tracking import TrackingAlgorithm
 from src.core.message import Message
 from src.core.network import CommunicationNetwork
+from src.core.processing_time import ProcessingTime, processing_time_config
 from src.domain.message_features import MessageType
 from src.domain.tracking import TrackPrediction, TrackingReport
 from src.utm_modules.flight_plan_manager import FlightPlanManager
@@ -27,7 +28,7 @@ class TrackingModule:
         prediction_horizon: int,
         prediction_step: float,
         tactical_deconfliction_module: TacticalDeconflictionModule | None = None,
-        processing_time: float = 0.0,
+        processing_time: float | ProcessingTime = 0.0,
     ) -> None:
         if history_window <= 0:
             raise ValueError("history_window must be greater than zero")
@@ -35,9 +36,6 @@ class TrackingModule:
             raise ValueError("prediction_horizon must be greater than zero")
         if prediction_step <= 0:
             raise ValueError("prediction_step must be greater than zero")
-        if processing_time < 0:
-            raise ValueError("processing_time cannot be negative")
-
         self.name = name
         self.env = env
         self.network = network
@@ -46,7 +44,7 @@ class TrackingModule:
         self.history_window = int(history_window)
         self.prediction_horizon = int(prediction_horizon)
         self.prediction_step = float(prediction_step)
-        self.processing_time = float(processing_time)
+        self.processing_time = processing_time_config(processing_time)
         self.tactical_deconfliction_module = tactical_deconfliction_module
 
         self.inbox = simpy.Store(env)
@@ -59,11 +57,26 @@ class TrackingModule:
         while True:
             message = yield self.inbox.get()
 
-            if self.processing_time:
-                yield self.env.timeout(self.processing_time)
-
             if message.message_type == MessageType.PERIODIC_REPORT:
+                delay = self.processing_time.calculate(
+                    self._processing_context(message)
+                )
+                if delay:
+                    yield self.env.timeout(delay)
                 self.process_report(message)
+
+    def _processing_context(self, message: Message) -> dict[str, object]:
+        history = self._report_histories.get(message.source, ())
+        return {
+            "module": self.name,
+            "message": message,
+            "uav_name": message.source,
+            "queue_length": len(self.inbox.items),
+            "history_size": len(history),
+            "track_count": len(self._predictions),
+            "prediction_horizon": self.prediction_horizon,
+            "prediction_step": self.prediction_step,
+        }
 
     def process_report(
         self,
