@@ -4,7 +4,7 @@ from typing import Any
 
 from src.airspace.airspace import Airspace
 from src.airspace.restrictions import Geofence
-from src.core.simulation_logger import SimulationEvent
+from src.core.simulation_event import SimulationEvent
 from src.domain.flight import FlightPlan
 from src.domain.tracking import TrackPrediction, TrackingReport
 from src.uav.uav import UAV, UAVStatus

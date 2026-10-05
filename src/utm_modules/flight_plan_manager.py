@@ -49,7 +49,7 @@ class FlightPlanManager:
 
         self._history[uav_name].append(flight_plan)
         plan_version = len(self._history[uav_name]) - 1
-        self.network.log_event(
+        self.network.record_event(
             component=self.name,
             event="FLIGHT_PLAN_APPROVED",
             uav=uav_name,
@@ -61,7 +61,7 @@ class FlightPlanManager:
         flight_plan = self._approved_flight_plans.get(uav_name)
 
         if flight_plan is None:
-            self.network.log_event(
+            self.network.record_event(
                 component=self.name,
                 event="FLIGHT_PLAN_ACTIVATION_FAILED",
                 uav=uav_name,
@@ -69,7 +69,7 @@ class FlightPlanManager:
             return None
 
         self._active_flight_plans[uav_name] = flight_plan
-        self.network.log_event(
+        self.network.record_event(
             component=self.name,
             event="FLIGHT_PLAN_ACTIVATED",
             uav=uav_name,
@@ -83,7 +83,7 @@ class FlightPlanManager:
             flight_plan = self._approved_flight_plans.get(uav_name)
 
         self._approved_flight_plans.pop(uav_name, None)
-        self.network.log_event(
+        self.network.record_event(
             component=self.name,
             event="FLIGHT_PLAN_COMPLETED",
             uav=uav_name,
@@ -104,7 +104,7 @@ class FlightPlanManager:
         return list(self._history.get(uav_name, []))
 
     def launch_updates(self, updates: dict[str, FlightPlan]) -> None:
-        self.network.log_event(
+        self.network.record_event(
             component=self.name,
             event="FLIGHT_PLAN_UPDATES_LAUNCHED",
             uavs=list(updates),

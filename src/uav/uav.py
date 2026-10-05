@@ -124,7 +124,7 @@ class UAV:
 
         self.status = UAVStatus.WAITING_FLIGHT_PLAN
 
-        self.network.log_event(
+        self.network.record_event(
             component=self.name,
             event="FLIGHT_PLAN_PROPOSED",
             proposal_id=proposal.message_id,
@@ -167,7 +167,7 @@ class UAV:
         elif decision == StrategicDecision.REJECT:
             self.status = UAVStatus.FLIGHT_PLAN_REJECTED
 
-        self.network.log_event(
+        self.network.record_event(
             component=self.name,
             event="STRATEGIC_RESPONSE_RECEIVED",
             decision=decision.value,
@@ -188,7 +188,7 @@ class UAV:
             # A tactical update changes the remaining route; it must not
             # reset the physical state of an aircraft already flying.
             self.guidance.load_flight_plan(new_flight_plan)
-            self.network.log_event(
+            self.network.record_event(
                 component=self.name,
                 event="ACTIVE_FLIGHT_PLAN_UPDATED",
             )
@@ -211,7 +211,7 @@ class UAV:
             self._notify_activation()
         else:
             self.status = UAVStatus.WAITING_DEPARTURE
-            self.network.log_event(
+            self.network.record_event(
                 component=self.name,
                 event="WAITING_FOR_DEPARTURE",
                 departure_time=first_waypoint.t,
@@ -233,7 +233,7 @@ class UAV:
 
             if self.status == UAVStatus.ACTIVE:
                 commanded_velocity = (
-                    self.guidance.calculate_commanded_velocity(
+                    self.guidance.update(
                         current_position=self.dynamics.position,
                         current_time=self.env.now,
                     )
@@ -252,7 +252,7 @@ class UAV:
 
     def _complete_flight_plan(self) -> None:
         self.status = UAVStatus.COMPLETED
-        self.network.log_event(
+        self.network.record_event(
             component=self.name,
             event="FLIGHT_COMPLETED",
             position=self.dynamics.position,
@@ -269,7 +269,7 @@ class UAV:
         self.network.send(message)
 
     def _notify_activation(self) -> None:
-        self.network.log_event(
+        self.network.record_event(
             component=self.name,
             event="FLIGHT_STARTED",
             position=self.dynamics.position,

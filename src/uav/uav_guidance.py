@@ -26,7 +26,8 @@ class UAVGuidance:
             len(flight_plan.waypoint_list) <= 1
         )
 
-    def calculate_commanded_velocity(self, current_position, current_time):
+    def update(self, current_position, current_time):
+        """Advance flight-plan progress and return the velocity command."""
         if self.flight_plan is None or self.completed:
             return [0.0, 0.0, 0.0]
 

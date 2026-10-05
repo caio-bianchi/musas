@@ -90,7 +90,7 @@ class TacticalDeconflictionModule:
         if not conflicts:
             return None
 
-        self.network.log_event(
+        self.network.record_event(
             component=self.name,
             event="TACTICAL_CONFLICTS_DETECTED",
             uav=updated_track.uav_name,
@@ -104,7 +104,7 @@ class TacticalDeconflictionModule:
             airspace=airspace,
         )
         if updates:
-            self.network.log_event(
+            self.network.record_event(
                 component=self.name,
                 event="TACTICAL_UPDATES_ISSUED",
                 uavs=list(updates),

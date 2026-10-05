@@ -1,10 +1,9 @@
 from typing import Protocol
-from pathlib import Path
 
 import simpy
 
 from src.core.message import Message
-from src.core.simulation_logger import SimulationEvent, SimulationLogger
+from src.core.simulation_event import SimulationEvent
 from src.domain.message_features import MessageType
 
 
@@ -16,24 +15,27 @@ class CommunicationNode(Protocol):
 
 
 class CommunicationNetwork:
-    def __init__(self,env: simpy.Environment,delay: float = 0.0,log_file: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        env: simpy.Environment,
+        delay: float = 0.0,
+    ) -> None:
         self.env = env
         self.delay = float(delay)
         self.nodes: dict[str, CommunicationNode] = {}
         self.event_history: list[SimulationEvent] = []
-        self.simulation_logger = (
-            SimulationLogger(env, log_file)
-            if log_file is not None
-            else None
-        )
 
-        self.log_event(
+        self.record_event(
             component="Network",
-            event="SIMULATION_LOG_STARTED",
-            file=log_file,
+            event="SIMULATION_STARTED",
         )
 
-    def log_event(self,component: str,event: str,**details) -> None:
+    def record_event(
+        self,
+        component: str,
+        event: str,
+        **details: object,
+    ) -> None:
         self.event_history.append(
             SimulationEvent(
                 timestamp=float(self.env.now),
@@ -42,12 +44,6 @@ class CommunicationNetwork:
                 details=dict(details),
             )
         )
-        if self.simulation_logger is not None:
-            self.simulation_logger.log(
-                component=component,
-                event=event,
-                **details,
-            )
 
     def get_event_history(self) -> list[SimulationEvent]:
         """Return a copy of the structured simulation event history."""
@@ -61,7 +57,7 @@ class CommunicationNetwork:
         such as a deconfliction module or tracking module.
         """
         self.nodes[node.name] = node
-        self.log_event(
+        self.record_event(
             component="Network",
             event="NODE_REGISTERED",
             node=node.name,
@@ -82,7 +78,7 @@ class CommunicationNetwork:
             MessageType.TRACK_UPDATE,
         }
         if should_log_message:
-            self.log_event(
+            self.record_event(
                 component="Network",
                 event="MESSAGE_SENT",
                 source=message.source,
@@ -99,7 +95,7 @@ class CommunicationNetwork:
         yield destination.inbox.put(message)
 
         if should_log_message:
-            self.log_event(
+            self.record_event(
                 component="Network",
                 event="MESSAGE_DELIVERED",
                 source=message.source,

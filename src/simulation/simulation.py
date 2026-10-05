@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import simpy
 
@@ -38,6 +39,7 @@ from src.utm_modules.tactical_deconfliction_module import (
 from src.utm_modules.tracking_module import TrackingModule
 
 from src.simulation.result import SimulationResult
+from src.simulation.dataset import IncrementalSimulationDatasetWriter
 
 
 def _type_name(value) -> str | None:
@@ -86,7 +88,10 @@ class Simulation:
         strategic_processing_time: float | ProcessingTime = 0.0,
         tracking_processing_time: float | ProcessingTime = 0.0,
         tactical_processing_time: float | ProcessingTime = 0.0,
-        log_file: str | Path | None = None,
+        dataset_path: str | Path | None = None,
+        dataset_flush_interval: float = 10.0,
+        dataset_metadata: dict[str, Any] | None = None,
+        overwrite_dataset: bool = False,
     ) -> None:
         if network_delay < 0:
             raise ValueError("network_delay cannot be negative")
@@ -98,6 +103,14 @@ class Simulation:
             )
         if report_interval <= 0:
             raise ValueError("report_interval must be greater than zero")
+        if dataset_flush_interval <= 0:
+            raise ValueError(
+                "dataset_flush_interval must be greater than zero"
+            )
+        if dataset_metadata is not None and dataset_path is None:
+            raise ValueError(
+                "dataset_path is required when dataset_metadata is provided"
+            )
 
         strategic_processing = processing_time_config(
             strategic_processing_time
@@ -155,13 +168,20 @@ class Simulation:
         self.network = CommunicationNetwork(
             env=self.env,
             delay=network_delay,
-            log_file=log_file,
         )
         self.flight_update_interval = float(flight_update_interval)
         self.trajectory_record_interval = float(
             trajectory_record_interval
         )
         self.report_interval = float(report_interval)
+        self.dataset_path = (
+            None
+            if dataset_path is None
+            else Path(dataset_path).expanduser().resolve()
+        )
+        self.dataset_flush_interval = float(dataset_flush_interval)
+        self.dataset_metadata = dict(dataset_metadata or {})
+        self.overwrite_dataset = overwrite_dataset
         self.configuration = {
             "network_delay": float(network_delay),
             "flight_update_interval": self.flight_update_interval,
@@ -213,6 +233,8 @@ class Simulation:
             "tactical_deconfliction_algorithm": _type_name(
                 tactical_deconfliction_algorithm
             ),
+            "incremental_dataset_enabled": self.dataset_path is not None,
+            "dataset_flush_interval": self.dataset_flush_interval,
         }
 
         self.flight_plan_manager = FlightPlanManager(
@@ -286,6 +308,10 @@ class Simulation:
             tuple[Geofence, float, float | None]
         ] = []
         self._started = False
+        self._closed = False
+        self._dataset_writer: (
+            IncrementalSimulationDatasetWriter | None
+        ) = None
 
     def add_uav(
         self,
@@ -373,16 +399,60 @@ class Simulation:
 
     def run(self, until: float) -> SimulationResult:
         """Run or continue the simulation up to an absolute time."""
+        if self._closed:
+            raise RuntimeError("simulation is closed")
         if not self.uavs:
             raise RuntimeError("add at least one UAV before running")
         if until <= self.env.now:
             raise ValueError("until must be greater than the current time")
         if not self._started:
+            self._start_dataset_recording()
             self._start_processes()
             self._started = True
 
-        self.env.run(until=until)
-        return self.result()
+        try:
+            self.env.run(until=until)
+        except Exception:
+            if self._dataset_writer is not None:
+                try:
+                    self._dataset_writer.flush(
+                        self._result_for_recording(),
+                        run_status="FAILED",
+                    )
+                except Exception:
+                    # Preserve the simulation error that triggered this path.
+                    pass
+                finally:
+                    self._dataset_writer.close()
+            self._closed = True
+            raise
+
+        result = self.result()
+        if self._dataset_writer is not None:
+            self._dataset_writer.flush(
+                result,
+                run_status=self._dataset_run_status(),
+            )
+        return result
+
+    def close(self) -> None:
+        """Flush and close an incremental dataset, if configured."""
+        if self._closed:
+            return
+        if self._dataset_writer is not None:
+            try:
+                self._dataset_writer.flush(
+                    self._result_for_recording(),
+                    run_status=(
+                        "COMPLETED"
+                        if self._all_flights_completed()
+                        else "STOPPED"
+                    ),
+                )
+            finally:
+                self._dataset_writer.close()
+                self._closed = True
+        self._closed = True
 
     def result(self) -> SimulationResult:
         """Return a snapshot of the state and histories collected so far."""
@@ -416,6 +486,29 @@ class Simulation:
             configuration=dict(self.configuration),
         )
 
+    def _result_for_recording(self) -> SimulationResult:
+        """Build a read-only view without copying growing histories."""
+        return SimulationResult(
+            time=float(self.env.now),
+            airspace=self.airspace,
+            uavs=self.uavs,
+            proposed_flight_plans=self.proposed_flight_plans,
+            flight_plan_history={
+                name: tuple(self.flight_plan_manager.get_history(name))
+                for name in self.uavs
+            },
+            trajectory_history=self.trajectory_history,
+            velocity_history=self.velocity_history,
+            airspace_history=self.airspace_history,
+            tracking_prediction_history=self.tracking_prediction_history,
+            tracking_report_history=self.tracking_report_history,
+            flight_plan_manager=self.flight_plan_manager,
+            tracking_module=self.tracking_module,
+            tactical_module=self.tactical_module,
+            event_history=self.network.event_history,
+            configuration=self.configuration,
+        )
+
     def _start_processes(self) -> None:
         self.env.process(self.strategic_module.run())
         if self.tracking_module is not None:
@@ -447,6 +540,8 @@ class Simulation:
         self.env.process(self._record_airspace())
         if self.tracking_module is not None:
             self.env.process(self._record_tracking())
+        if self._dataset_writer is not None:
+            self.env.process(self._record_dataset())
 
         for geofence, activation_time, removal_time in (
             self._scheduled_geofences
@@ -478,7 +573,7 @@ class Simulation:
         if activation_time > self.env.now:
             yield self.env.timeout(activation_time - self.env.now)
         self.airspace.add_geofence(geofence)
-        self.network.log_event(
+        self.network.record_event(
             component="Airspace",
             event="GEOFENCE_ACTIVATED",
             geofence=geofence.geofence_id,
@@ -488,7 +583,7 @@ class Simulation:
             if removal_time > self.env.now:
                 yield self.env.timeout(removal_time - self.env.now)
             self.airspace.remove_geofence(geofence.geofence_id)
-            self.network.log_event(
+            self.network.record_event(
                 component="Airspace",
                 event="GEOFENCE_REMOVED",
                 geofence=geofence.geofence_id,
@@ -537,3 +632,32 @@ class Simulation:
                 )
             )
             yield self.env.timeout(self.trajectory_record_interval)
+
+    def _start_dataset_recording(self) -> None:
+        if self.dataset_path is None:
+            return
+        self._dataset_writer = IncrementalSimulationDatasetWriter(
+            path=self.dataset_path,
+            configuration=dict(self.configuration),
+            metadata=self.dataset_metadata,
+            overwrite=self.overwrite_dataset,
+        )
+        self._dataset_writer.flush(self._result_for_recording())
+
+    def _record_dataset(self):
+        while True:
+            yield self.env.timeout(self.dataset_flush_interval)
+            if self._dataset_writer is not None:
+                self._dataset_writer.flush(
+                    self._result_for_recording(),
+                    run_status=self._dataset_run_status(),
+                )
+
+    def _all_flights_completed(self) -> bool:
+        return bool(self.uavs) and all(
+            uav.status == UAVStatus.COMPLETED
+            for uav in self.uavs.values()
+        )
+
+    def _dataset_run_status(self) -> str:
+        return "COMPLETED" if self._all_flights_completed() else "RUNNING"
