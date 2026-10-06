@@ -7,6 +7,7 @@ env/
 __pycache__/
 *.py[cod]
 *.pyo
+*.egg-info/
 
 # Configurações do VS Code
 .vscode/
@@ -19,7 +20,6 @@ Thumbs.db
 .env
 
 learning_simPy/
-test/
 gpt/
 
 todo
