@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 import simpy
 
 from utm_simulator.airspace.airspace import Airspace
@@ -22,10 +24,18 @@ class FlightPlanManager:
         self._approved_flight_plans: dict[str, FlightPlan] = {}
         self._active_flight_plans: dict[str, FlightPlan] = {}
         self._history: dict[str, list[FlightPlan]] = {}
+        self._completion_observers: list[Callable[[str], None]] = []
 
         self.inbox = simpy.Store(env)
 
         network.register(self)
+
+    def add_completion_observer(
+        self,
+        observer: Callable[[str], None],
+    ) -> None:
+        if observer not in self._completion_observers:
+            self._completion_observers.append(observer)
 
     def get_airspace(self) -> Airspace:
         return self.airspace
@@ -41,7 +51,7 @@ class FlightPlanManager:
             wind_zones=[],
         )
 
-    def approve(self, uav_name: str, flight_plan: FlightPlan) -> None:
+    def approve(self, uav_name: str, flight_plan: FlightPlan) -> int:
         self._approved_flight_plans[uav_name] = flight_plan
 
         if uav_name not in self._history:
@@ -56,6 +66,7 @@ class FlightPlanManager:
             plan_version=plan_version,
             waypoint_count=len(flight_plan.waypoint_list),
         )
+        return plan_version
 
     def activate(self, uav_name: str) -> FlightPlan | None:
         flight_plan = self._approved_flight_plans.get(uav_name)
@@ -89,6 +100,8 @@ class FlightPlanManager:
             uav=uav_name,
             found=flight_plan is not None,
         )
+        for observer in tuple(self._completion_observers):
+            observer(uav_name)
         return flight_plan
 
     def get(self, uav_name: str) -> FlightPlan | None:
@@ -110,7 +123,7 @@ class FlightPlanManager:
             uavs=list(updates),
         )
         for uav_name, flight_plan in updates.items():
-            self.approve(uav_name, flight_plan)
+            plan_version = self.approve(uav_name, flight_plan)
 
             if uav_name in self._active_flight_plans:
                 self._active_flight_plans[uav_name] = flight_plan
@@ -121,6 +134,7 @@ class FlightPlanManager:
                 message_type=MessageType.UPDATE_FLIGHT_PLAN,
                 payload={
                     "new_flight_plan": flight_plan,
+                    "plan_version": plan_version,
                 },
                 issue_timestamp=self.env.now,
             )

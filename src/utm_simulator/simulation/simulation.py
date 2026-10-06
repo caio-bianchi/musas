@@ -38,8 +38,12 @@ from utm_simulator.utm.tactical_deconfliction_module import (
 )
 from utm_simulator.utm.tracking_module import TrackingModule
 
-from utm_simulator.simulation.result import SimulationResult
-from utm_simulator.simulation.dataset import IncrementalSimulationDatasetWriter
+from utm_simulator.simulation.result import (
+    SimulationResult,
+    UAVSnapshot,
+    UAVStateSample,
+)
+from utm_simulator.simulation.dataset import SimulationDatasetRecorder
 
 
 def _type_name(value) -> str | None:
@@ -92,6 +96,7 @@ class Simulation:
         dataset_flush_interval: float = 10.0,
         dataset_metadata: dict[str, Any] | None = None,
         overwrite_dataset: bool = False,
+        keep_history_in_memory: bool = True,
     ) -> None:
         if network_delay < 0:
             raise ValueError("network_delay cannot be negative")
@@ -110,6 +115,10 @@ class Simulation:
         if dataset_metadata is not None and dataset_path is None:
             raise ValueError(
                 "dataset_path is required when dataset_metadata is provided"
+            )
+        if not keep_history_in_memory and dataset_path is None:
+            raise ValueError(
+                "dataset_path is required when keep_history_in_memory is False"
             )
 
         strategic_processing = processing_time_config(
@@ -182,6 +191,7 @@ class Simulation:
         self.dataset_flush_interval = float(dataset_flush_interval)
         self.dataset_metadata = dict(dataset_metadata or {})
         self.overwrite_dataset = overwrite_dataset
+        self.keep_history_in_memory = bool(keep_history_in_memory)
         self.configuration = {
             "network_delay": float(network_delay),
             "flight_update_interval": self.flight_update_interval,
@@ -235,6 +245,7 @@ class Simulation:
             ),
             "incremental_dataset_enabled": self.dataset_path is not None,
             "dataset_flush_interval": self.dataset_flush_interval,
+            "keep_history_in_memory": self.keep_history_in_memory,
         }
 
         self.flight_plan_manager = FlightPlanManager(
@@ -282,36 +293,28 @@ class Simulation:
                 prediction_step=prediction_step,
                 tactical_deconfliction_module=self.tactical_module,
                 processing_time=tracking_processing,
+                report_observer=self._record_tracking_report,
+                prediction_observer=self._record_tracking_prediction,
             )
 
         self.uavs: dict[str, UAV] = {}
         self.proposed_flight_plans: dict[str, FlightPlan] = {}
         self.submission_times: dict[str, float] = {}
-        self.trajectory_history: dict[
-            str,
-            list[tuple[float, list[float], UAVStatus]],
-        ] = {}
-        self.velocity_history: dict[
-            str,
-            list[tuple[float, list[float]]],
-        ] = {}
+        self.state_history: dict[str, list[UAVStateSample]] = {}
         self.airspace_history: list[
             tuple[float, tuple[Geofence, ...]]
         ] = []
-        self.tracking_prediction_history: list[
-            tuple[float, dict[str, TrackPrediction]]
-        ] = []
-        self.tracking_report_history: list[
-            tuple[float, dict[str, tuple[TrackingReport, ...]]]
-        ] = []
+        self.tracking_predictions: list[TrackPrediction] = []
+        self.tracking_reports: list[TrackingReport] = []
         self._scheduled_geofences: list[
             tuple[Geofence, float, float | None]
         ] = []
         self._started = False
         self._closed = False
         self._dataset_writer: (
-            IncrementalSimulationDatasetWriter | None
+            SimulationDatasetRecorder | None
         ) = None
+        self.airspace.add_change_observer(self._record_airspace_change)
 
     def add_uav(
         self,
@@ -352,8 +355,7 @@ class Simulation:
         self.uavs[name] = uav
         self.proposed_flight_plans[name] = flight_plan
         self.submission_times[name] = float(submission_time)
-        self.trajectory_history[name] = []
-        self.velocity_history[name] = []
+        self.state_history[name] = []
         return uav
 
     def schedule_geofence(
@@ -415,98 +417,106 @@ class Simulation:
         except Exception:
             if self._dataset_writer is not None:
                 try:
-                    self._dataset_writer.flush(
-                        self._result_for_recording(),
-                        run_status="FAILED",
-                    )
+                    self._flush_dataset("FAILED")
                 except Exception:
                     # Preserve the simulation error that triggered this path.
                     pass
                 finally:
                     self._dataset_writer.close()
+            self.airspace.remove_change_observer(
+                self._record_airspace_change
+            )
             self._closed = True
             raise
 
         result = self.result()
-        if self._dataset_writer is not None:
-            self._dataset_writer.flush(
-                result,
-                run_status=self._dataset_run_status(),
-            )
+        self._flush_dataset(self._dataset_run_status())
         return result
 
     def close(self) -> None:
         """Flush and close an incremental dataset, if configured."""
         if self._closed:
             return
-        if self._dataset_writer is not None:
-            try:
-                self._dataset_writer.flush(
-                    self._result_for_recording(),
-                    run_status=(
+        try:
+            if self._dataset_writer is not None:
+                try:
+                    self._flush_dataset(
                         "COMPLETED"
                         if self._all_flights_completed()
                         else "STOPPED"
-                    ),
-                )
-            finally:
-                self._dataset_writer.close()
-                self._closed = True
-        self._closed = True
+                    )
+                finally:
+                    self._dataset_writer.close()
+        finally:
+            self.airspace.remove_change_observer(
+                self._record_airspace_change
+            )
+            self._closed = True
 
     def result(self) -> SimulationResult:
         """Return a snapshot of the state and histories collected so far."""
+        return self._build_result(copy_histories=True)
+
+    def _build_result(self, copy_histories: bool) -> SimulationResult:
+        """Build the single data view used by callers and the recorder."""
         flight_plan_history = {
             name: tuple(self.flight_plan_manager.get_history(name))
             for name in self.uavs
         }
+        state_history = (
+            {
+                name: list(history)
+                for name, history in self.state_history.items()
+            }
+            if copy_histories
+            else self.state_history
+        )
+        uav_snapshots = {
+            name: UAVSnapshot(
+                name=name,
+                status=uav.status,
+                position=tuple(uav.dynamics.position),
+                velocity=tuple(uav.dynamics.velocity),
+                dynamics_type=_type_name(uav.dynamics.algorithm) or "",
+                guidance_type=_type_name(uav.guidance.algorithm) or "",
+                sensor_type=_type_name(uav.sensor_model) or "",
+            )
+            for name, uav in self.uavs.items()
+        }
         return SimulationResult(
             time=float(self.env.now),
-            airspace=self.airspace,
-            uavs=self.uavs.copy(),
+            airspace=Airspace(
+                obstacles=list(self.airspace.obstacles),
+                geofences=list(self.airspace.geofences),
+                wind_zones=list(self.airspace.wind_zones),
+            ),
+            uavs=uav_snapshots,
             proposed_flight_plans=self.proposed_flight_plans.copy(),
             flight_plan_history=flight_plan_history,
-            trajectory_history={
-                name: list(history)
-                for name, history in self.trajectory_history.items()
-            },
-            velocity_history={
-                name: list(history)
-                for name, history in self.velocity_history.items()
-            },
-            airspace_history=list(self.airspace_history),
-            tracking_prediction_history=list(
-                self.tracking_prediction_history
+            state_history=state_history,
+            airspace_history=(
+                list(self.airspace_history)
+                if copy_histories
+                else self.airspace_history
             ),
-            tracking_report_history=list(self.tracking_report_history),
-            flight_plan_manager=self.flight_plan_manager,
-            tracking_module=self.tracking_module,
-            tactical_module=self.tactical_module,
-            event_history=self.network.get_event_history(),
+            tracking_reports=(
+                list(self.tracking_reports)
+                if copy_histories
+                else self.tracking_reports
+            ),
+            tracking_predictions=(
+                list(self.tracking_predictions)
+                if copy_histories
+                else self.tracking_predictions
+            ),
+            event_history=(
+                self.network.get_event_history()
+                if copy_histories
+                else self.network.event_history
+            ),
             configuration=dict(self.configuration),
-        )
-
-    def _result_for_recording(self) -> SimulationResult:
-        """Build a read-only view without copying growing histories."""
-        return SimulationResult(
-            time=float(self.env.now),
-            airspace=self.airspace,
-            uavs=self.uavs,
-            proposed_flight_plans=self.proposed_flight_plans,
-            flight_plan_history={
-                name: tuple(self.flight_plan_manager.get_history(name))
-                for name in self.uavs
-            },
-            trajectory_history=self.trajectory_history,
-            velocity_history=self.velocity_history,
-            airspace_history=self.airspace_history,
-            tracking_prediction_history=self.tracking_prediction_history,
-            tracking_report_history=self.tracking_report_history,
-            flight_plan_manager=self.flight_plan_manager,
-            tracking_module=self.tracking_module,
-            tactical_module=self.tactical_module,
-            event_history=self.network.event_history,
-            configuration=self.configuration,
+            dataset_path=self.dataset_path,
+            history_complete=self.keep_history_in_memory,
         )
 
     def _start_processes(self) -> None:
@@ -536,10 +546,8 @@ class Simulation:
                 )
             )
 
-        self.env.process(self._record_trajectories())
-        self.env.process(self._record_airspace())
-        if self.tracking_module is not None:
-            self.env.process(self._record_tracking())
+        self._record_airspace_change()
+        self.env.process(self._record_states())
         if self._dataset_writer is not None:
             self.env.process(self._record_dataset())
 
@@ -589,69 +597,73 @@ class Simulation:
                 geofence=geofence.geofence_id,
             )
 
-    def _record_trajectories(self):
+    def _record_states(self):
         while True:
             for name, uav in self.uavs.items():
-                self.trajectory_history[name].append(
-                    (
-                        float(self.env.now),
-                        uav.dynamics.position.copy(),
-                        uav.status,
-                    )
-                )
-                self.velocity_history[name].append(
-                    (
-                        float(self.env.now),
-                        uav.dynamics.velocity.copy(),
+                self.state_history[name].append(
+                    UAVStateSample(
+                        timestamp=float(self.env.now),
+                        position=tuple(uav.dynamics.position),
+                        velocity=tuple(uav.dynamics.velocity),
+                        status=uav.status,
                     )
                 )
             yield self.env.timeout(self.trajectory_record_interval)
 
-    def _record_airspace(self):
-        while True:
-            self.airspace_history.append(
-                (
-                    float(self.env.now),
-                    tuple(self.airspace.geofences),
-                )
-            )
-            yield self.env.timeout(self.trajectory_record_interval)
+    def _record_airspace_change(self) -> None:
+        snapshot = (
+            float(self.env.now),
+            tuple(self.airspace.geofences),
+        )
+        if (
+            self.airspace_history
+            and self.airspace_history[-1][0] == snapshot[0]
+        ):
+            self.airspace_history[-1] = snapshot
+        else:
+            self.airspace_history.append(snapshot)
 
-    def _record_tracking(self):
-        while True:
-            self.tracking_prediction_history.append(
-                (
-                    float(self.env.now),
-                    self.tracking_module.get_all_predictions(),
-                )
-            )
-            self.tracking_report_history.append(
-                (
-                    float(self.env.now),
-                    self.tracking_module.get_all_report_histories(),
-                )
-            )
-            yield self.env.timeout(self.trajectory_record_interval)
+    def _record_tracking_report(self, report: TrackingReport) -> None:
+        self.tracking_reports.append(report)
+
+    def _record_tracking_prediction(self, prediction: TrackPrediction) -> None:
+        self.tracking_predictions.append(prediction)
 
     def _start_dataset_recording(self) -> None:
         if self.dataset_path is None:
             return
-        self._dataset_writer = IncrementalSimulationDatasetWriter(
+        self._dataset_writer = SimulationDatasetRecorder(
             path=self.dataset_path,
             configuration=dict(self.configuration),
             metadata=self.dataset_metadata,
             overwrite=self.overwrite_dataset,
         )
-        self._dataset_writer.flush(self._result_for_recording())
+        self._flush_dataset()
 
     def _record_dataset(self):
         while True:
             yield self.env.timeout(self.dataset_flush_interval)
-            if self._dataset_writer is not None:
-                self._dataset_writer.flush(
-                    self._result_for_recording(),
-                    run_status=self._dataset_run_status(),
-                )
+            self._flush_dataset(self._dataset_run_status())
+
+    def _flush_dataset(self, run_status: str = "RUNNING") -> None:
+        if self._dataset_writer is None:
+            return
+        self._dataset_writer.flush(
+            self._build_result(copy_histories=False),
+            run_status=run_status,
+        )
+        if not self.keep_history_in_memory:
+            self._clear_persisted_history()
+
+    def _clear_persisted_history(self) -> None:
+        for history in self.state_history.values():
+            history.clear()
+        self.airspace_history.clear()
+        self.tracking_reports.clear()
+        self.tracking_predictions.clear()
+        self.network.event_history.clear()
+        if self._dataset_writer is not None:
+            self._dataset_writer.reset_transient_offsets()
 
     def _all_flights_completed(self) -> bool:
         return bool(self.uavs) and all(

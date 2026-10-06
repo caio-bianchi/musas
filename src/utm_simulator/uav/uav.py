@@ -85,7 +85,7 @@ class UAV:
         tracking_module: TrackingModule,
         update_interval: float,
     ):
-        while True:
+        while self.status != UAVStatus.COMPLETED:
             measurement = self.sensor_model.measure(
                 position=self.dynamics.position,
                 velocity=self.dynamics.velocity,
@@ -157,11 +157,15 @@ class UAV:
             )
             flight_plan = pending["flight_plan"]
 
-            self.load_flight_plan(flight_plan)
+            self.load_flight_plan(
+                flight_plan,
+                plan_version=message.payload.get("plan_version"),
+            )
 
         elif decision == StrategicDecision.COUNTER_PROPOSAL:
             self.load_flight_plan(
-                message.payload["counter_proposal"]
+                message.payload["counter_proposal"],
+                plan_version=message.payload.get("plan_version"),
             )
 
         elif decision == StrategicDecision.REJECT:
@@ -182,7 +186,16 @@ class UAV:
         self,
         message: Message,
     ) -> None:
+        if self.status == UAVStatus.COMPLETED:
+            self.network.record_event(
+                component=self.name,
+                event="FLIGHT_PLAN_UPDATE_IGNORED",
+                reason="FLIGHT_COMPLETED",
+            )
+            return
+
         new_flight_plan = message.payload["new_flight_plan"]
+        plan_version = message.payload.get("plan_version")
 
         if self.status == UAVStatus.ACTIVE:
             # A tactical update changes the remaining route; it must not
@@ -192,10 +205,18 @@ class UAV:
                 component=self.name,
                 event="ACTIVE_FLIGHT_PLAN_UPDATED",
             )
+            self._record_loaded_plan(plan_version)
         else:
-            self.load_flight_plan(new_flight_plan)
+            self.load_flight_plan(
+                new_flight_plan,
+                plan_version=plan_version,
+            )
 
-    def load_flight_plan(self, flight_plan: FlightPlan) -> None:
+    def load_flight_plan(
+        self,
+        flight_plan: FlightPlan,
+        plan_version: int | None = None,
+    ) -> None:
         first_waypoint = flight_plan.waypoint_list[0]
 
         self.dynamics.reset(
@@ -215,6 +236,16 @@ class UAV:
                 component=self.name,
                 event="WAITING_FOR_DEPARTURE",
                 departure_time=first_waypoint.t,
+            )
+        self._record_loaded_plan(plan_version)
+
+    def _record_loaded_plan(self, plan_version: int | None) -> None:
+        if plan_version is not None:
+            self.network.record_event(
+                component=self.name,
+                event="FLIGHT_PLAN_LOADED",
+                uav=self.name,
+                plan_version=plan_version,
             )
 
     def fly(self, update_interval: float = 0.1):

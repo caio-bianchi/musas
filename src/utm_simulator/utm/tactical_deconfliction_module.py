@@ -39,6 +39,7 @@ class TacticalDeconflictionModule:
 
         self.inbox = simpy.Store(env)
         self._tracks: dict[str, TrackPrediction] = {}
+        self._completed_uavs: set[str] = set()
         self._latest_conflicts: list[Conflict] = []
         self._issued_updates: dict[str, FlightPlan] = {}
         self._issued_update_history: dict[str, list[FlightPlan]] = {}
@@ -72,9 +73,14 @@ class TacticalDeconflictionModule:
 
     def process_track_update(self, message: Message) -> dict[str, FlightPlan] | None:
         updated_track = message.payload["track_prediction"]
+        if updated_track.uav_name in self._completed_uavs:
+            return None
         current_track = self._tracks.get(updated_track.uav_name)
 
-        if (current_track is not None and updated_track.generated_at < current_track.generated_at):
+        if (
+            current_track is not None
+            and updated_track.generated_at < current_track.generated_at
+        ):
             return None
 
         self._tracks[updated_track.uav_name] = updated_track
@@ -122,6 +128,18 @@ class TacticalDeconflictionModule:
 
     def get_all_tracks(self) -> dict[str, TrackPrediction]:
         return self._tracks.copy()
+
+    def remove_uav(self, uav_name: str) -> TrackPrediction | None:
+        """Forget the current live track of a UAV."""
+        removed = self._tracks.pop(uav_name, None)
+        if removed is not None:
+            self._latest_conflicts = []
+        return removed
+
+    def complete_uav(self, uav_name: str) -> TrackPrediction | None:
+        """Permanently reject tracks for a completed UAV."""
+        self._completed_uavs.add(uav_name)
+        return self.remove_uav(uav_name)
 
     def get_latest_conflicts(self) -> list[Conflict]:
         return list(self._latest_conflicts)

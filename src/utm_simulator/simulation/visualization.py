@@ -206,7 +206,7 @@ def _load_data(
 
         selected_set = set(selected)
         plan_events = defaultdict(list)
-        for event in dataset.get_events("FLIGHT_PLAN_APPROVED"):
+        for event in dataset.get_events("FLIGHT_PLAN_LOADED"):
             uav_name = event.details.get("uav")
             if uav_name in selected_set:
                 plan_events[uav_name].append(event)
@@ -345,14 +345,17 @@ def _active_plan(
     uav_name: str,
     timestamp: float,
 ) -> FlightPlan | None:
+    load_events = data.plan_events.get(uav_name, ())
     events = [
         event
-        for event in data.plan_events.get(uav_name, ())
+        for event in load_events
         if event.timestamp <= timestamp
     ]
     if events:
         version = int(events[-1].details["plan_version"])
         return data.authorized_plans[uav_name].get(version)
+    if load_events:
+        return None
     return data.proposed_plans[uav_name]
 
 

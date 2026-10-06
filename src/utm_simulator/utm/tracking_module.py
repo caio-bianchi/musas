@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import deque
+from collections.abc import Callable
 
 import simpy
 
@@ -29,6 +30,8 @@ class TrackingModule:
         prediction_step: float,
         tactical_deconfliction_module: TacticalDeconflictionModule | None = None,
         processing_time: float | ProcessingTime = 0.0,
+        report_observer: Callable[[TrackingReport], None] | None = None,
+        prediction_observer: Callable[[TrackPrediction], None] | None = None,
     ) -> None:
         if history_window <= 0:
             raise ValueError("history_window must be greater than zero")
@@ -46,12 +49,16 @@ class TrackingModule:
         self.prediction_step = float(prediction_step)
         self.processing_time = processing_time_config(processing_time)
         self.tactical_deconfliction_module = tactical_deconfliction_module
+        self.report_observer = report_observer
+        self.prediction_observer = prediction_observer
 
         self.inbox = simpy.Store(env)
         self._report_histories: dict[str, deque[TrackingReport]] = {}
         self._predictions: dict[str, TrackPrediction] = {}
+        self._completed_uavs: set[str] = set()
 
         network.register(self)
+        flight_plan_manager.add_completion_observer(self.complete_uav)
 
     def run(self):
         while True:
@@ -89,7 +96,11 @@ class TrackingModule:
             timestamp=float(message.issue_timestamp),
             received_at=float(self.env.now),
         )
+        if report.uav_name in self._completed_uavs:
+            return None
         self._store_report(report)
+        if self.report_observer is not None:
+            self.report_observer(report)
 
         flight_plan = self.flight_plan_manager.get(report.uav_name)
         if flight_plan is None:
@@ -105,9 +116,11 @@ class TrackingModule:
             prediction_step=self.prediction_step,
         )
         self._predictions[report.uav_name] = prediction
+        if self.prediction_observer is not None:
+            self.prediction_observer(prediction)
         if self.tactical_deconfliction_module is not None:
             self._publish_prediction(prediction)
-        
+
         return prediction
 
     def _publish_prediction(
@@ -154,4 +167,16 @@ class TrackingModule:
 
     def remove_uav(self, uav_name: str) -> TrackPrediction | None:
         self._report_histories.pop(uav_name, None)
-        return self._predictions.pop(uav_name, None)
+        removed = self._predictions.pop(uav_name, None)
+        if self.tactical_deconfliction_module is not None:
+            self.tactical_deconfliction_module.remove_uav(uav_name)
+        return removed
+
+    def complete_uav(self, uav_name: str) -> TrackPrediction | None:
+        """Permanently stop tracking a completed UAV."""
+        self._completed_uavs.add(uav_name)
+        self._report_histories.pop(uav_name, None)
+        removed = self._predictions.pop(uav_name, None)
+        if self.tactical_deconfliction_module is not None:
+            self.tactical_deconfliction_module.complete_uav(uav_name)
+        return removed

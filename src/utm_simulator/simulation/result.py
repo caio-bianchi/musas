@@ -7,42 +7,49 @@ from utm_simulator.airspace.restrictions import Geofence
 from utm_simulator.core.simulation_event import SimulationEvent
 from utm_simulator.domain.flight import FlightPlan
 from utm_simulator.domain.tracking import TrackPrediction, TrackingReport
-from utm_simulator.uav.uav import UAV, UAVStatus
-from utm_simulator.utm.flight_plan_manager import FlightPlanManager
-from utm_simulator.utm.tactical_deconfliction_module import (
-    TacticalDeconflictionModule,
-)
-from utm_simulator.utm.tracking_module import TrackingModule
+from utm_simulator.uav.uav import UAVStatus
+
+
+@dataclass(frozen=True)
+class UAVSnapshot:
+    """Serializable snapshot of a UAV at the end of a run."""
+
+    name: str
+    status: UAVStatus
+    position: tuple[float, float, float]
+    velocity: tuple[float, float, float]
+    dynamics_type: str
+    guidance_type: str
+    sensor_type: str
+
+
+@dataclass(frozen=True)
+class UAVStateSample:
+    """Position, velocity, and status recorded at one instant."""
+
+    timestamp: float
+    position: tuple[float, float, float]
+    velocity: tuple[float, float, float]
+    status: UAVStatus
 
 
 @dataclass
 class SimulationResult:
-    """State and histories collected up to the current simulation time."""
+    """Data collected up to the current simulation time."""
+
     time: float
     airspace: Airspace
-    uavs: dict[str, UAV]
+    uavs: dict[str, UAVSnapshot]
     proposed_flight_plans: dict[str, FlightPlan]
     flight_plan_history: dict[str, tuple[FlightPlan, ...]]
-    trajectory_history: dict[
-        str,
-        list[tuple[float, list[float], UAVStatus]],
-    ]
-    velocity_history: dict[
-        str,
-        list[tuple[float, list[float]]],
-    ]
+    state_history: dict[str, list[UAVStateSample]]
     airspace_history: list[tuple[float, tuple[Geofence, ...]]]
-    tracking_prediction_history: list[
-        tuple[float, dict[str, TrackPrediction]]
-    ]
-    tracking_report_history: list[
-        tuple[float, dict[str, tuple[TrackingReport, ...]]]
-    ]
-    flight_plan_manager: FlightPlanManager
-    tracking_module: TrackingModule | None
-    tactical_module: TacticalDeconflictionModule | None
+    tracking_reports: list[TrackingReport]
+    tracking_predictions: list[TrackPrediction]
     event_history: list[SimulationEvent]
     configuration: dict[str, Any]
+    dataset_path: Path | None = None
+    history_complete: bool = True
 
     @property
     def latest_flight_plans(self) -> dict[str, FlightPlan]:
@@ -60,9 +67,15 @@ class SimulationResult:
         overwrite: bool = False,
     ) -> Path:
         """Persist this result as a self-contained SQLite dataset."""
-        from utm_simulator.simulation.dataset import SimulationDatasetWriter
+        if not self.history_complete:
+            raise RuntimeError(
+                "this result contains only the latest in-memory buffer; "
+                "use its dataset_path for the complete history"
+            )
 
-        return SimulationDatasetWriter.write(
+        from utm_simulator.simulation.dataset import SimulationDatasetRecorder
+
+        return SimulationDatasetRecorder.write(
             result=self,
             path=path,
             metadata=metadata,

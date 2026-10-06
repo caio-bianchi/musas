@@ -3,7 +3,9 @@ import simpy
 from utm_simulator.algorithms.interfaces.conflict_prediction import (
     ConflictPredictionAlgorithm,
 )
-from utm_simulator.algorithms.interfaces.strategic_deconfliction import StrategicDeconflictionAlgorithm
+from utm_simulator.algorithms.interfaces.strategic_deconfliction import (
+    StrategicDeconflictionAlgorithm,
+)
 from utm_simulator.core.message import Message
 from utm_simulator.core.network import CommunicationNetwork
 from utm_simulator.core.processing_time import ProcessingTime, processing_time_config
@@ -99,7 +101,10 @@ class StrategicDeconflictionModule:
             counter_proposal = None
             updates = {}
 
-            self.flight_plan_manager.approve(requesting_uav, proposed_flight_plan)
+            plan_version = self.flight_plan_manager.approve(
+                requesting_uav,
+                proposed_flight_plan,
+            )
 
         else:
             decision, counter_proposal, updates = (
@@ -111,7 +116,7 @@ class StrategicDeconflictionModule:
                 )
             )
 
-            self._apply_decision(
+            plan_version = self._apply_decision(
                 requesting_uav=requesting_uav,
                 proposed_flight_plan=proposed_flight_plan,
                 decision=decision,
@@ -134,6 +139,7 @@ class StrategicDeconflictionModule:
             payload={
                 "decision": decision,
                 "counter_proposal": counter_proposal,
+                "plan_version": plan_version,
             },
             issue_timestamp=self.env.now,
             in_reply_to=proposal_id,
@@ -164,19 +170,25 @@ class StrategicDeconflictionModule:
         decision: StrategicDecision,
         counter_proposal: FlightPlan | None,
         updates: dict[str, FlightPlan],
-    ) -> None:
+    ) -> int | None:
+        plan_version = None
         if decision == StrategicDecision.COUNTER_PROPOSAL:
             if counter_proposal is not None:
-                self.flight_plan_manager.approve(
+                plan_version = self.flight_plan_manager.approve(
                     requesting_uav,
                     counter_proposal,
                 )
 
         elif decision == StrategicDecision.APPROVE:
-            self.flight_plan_manager.approve(requesting_uav, proposed_flight_plan)
+            plan_version = self.flight_plan_manager.approve(
+                requesting_uav,
+                proposed_flight_plan,
+            )
 
         elif decision == StrategicDecision.REJECT:
             pass
 
         if updates:
             self.flight_plan_manager.launch_updates(updates)
+
+        return plan_version

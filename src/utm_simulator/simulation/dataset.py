@@ -128,44 +128,8 @@ def _geometry_data(geometry: Any) -> tuple[str, dict[str, Any]]:
     return _qualified_type_name(geometry), values
 
 
-class SimulationDatasetWriter:
-    """Serialize a SimulationResult into one portable SQLite file."""
-
-    @classmethod
-    def write(
-        cls,
-        result: SimulationResult,
-        path: str | Path,
-        metadata: dict[str, Any] | None = None,
-        overwrite: bool = False,
-    ) -> Path:
-        destination = Path(path).expanduser().resolve()
-        if destination.exists() and not overwrite:
-            raise FileExistsError(
-                f"simulation dataset already exists: {destination}"
-            )
-        destination.parent.mkdir(parents=True, exist_ok=True)
-
-        temporary_file = tempfile.NamedTemporaryFile(
-            prefix=f".{destination.name}.",
-            suffix=".tmp",
-            dir=destination.parent,
-            delete=False,
-        )
-        temporary_path = Path(temporary_file.name)
-        temporary_file.close()
-
-        try:
-            with sqlite3.connect(temporary_path) as connection:
-                connection.execute("PRAGMA foreign_keys = ON")
-                cls._create_schema(connection)
-                cls._write_result(connection, result, metadata or {})
-            os.replace(temporary_path, destination)
-        except Exception:
-            temporary_path.unlink(missing_ok=True)
-            raise
-
-        return destination
+class _DatasetSchema:
+    """Create the SQLite schema shared by every recording mode."""
 
     @staticmethod
     def _create_schema(connection: sqlite3.Connection) -> None:
@@ -274,339 +238,51 @@ class SimulationDatasetWriter:
             """
         )
 
-    @classmethod
-    def _write_result(
-        cls,
-        connection: sqlite3.Connection,
-        result: SimulationResult,
-        supplied_metadata: dict[str, Any],
-    ) -> None:
-        metadata = {
-            **supplied_metadata,
-            "schema_version": SCHEMA_VERSION,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "simulation_time": result.time,
-            "configuration": result.configuration,
-        }
-        connection.executemany(
-            "INSERT INTO metadata(key, value_json) VALUES (?, ?)",
-            [
-                (key, _json_dumps(value))
-                for key, value in metadata.items()
-            ],
-        )
 
-        cls._write_uavs(connection, result)
-        cls._write_flight_plans(connection, result)
-        cls._write_trajectories(connection, result)
-        cls._write_airspace(connection, result)
-        cls._write_tracking(connection, result)
-        cls._write_events(connection, result)
+class SimulationDatasetRecorder:
+    """Write complete or incremental simulation data to SQLite."""
 
     @staticmethod
-    def _write_uavs(
-        connection: sqlite3.Connection,
+    def write(
         result: SimulationResult,
-    ) -> None:
-        rows = []
-        for name, uav in result.uavs.items():
-            rows.append(
-                (
-                    name,
-                    uav.status.name,
-                    _qualified_type_name(uav.dynamics.algorithm),
-                    _qualified_type_name(uav.guidance.algorithm),
-                    _qualified_type_name(uav.sensor_model),
-                )
+        path: str | Path,
+        metadata: dict[str, Any] | None = None,
+        overwrite: bool = False,
+    ) -> Path:
+        """Write a complete result using the incremental recorder."""
+        destination = Path(path).expanduser().resolve()
+        if destination.exists() and not overwrite:
+            raise FileExistsError(
+                f"simulation dataset already exists: {destination}"
             )
-        connection.executemany(
-            """
-            INSERT INTO uavs(
-                name, final_status, dynamics_type, guidance_type, sensor_type
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            rows,
+        destination.parent.mkdir(parents=True, exist_ok=True)
+
+        temporary_file = tempfile.NamedTemporaryFile(
+            prefix=f".{destination.name}.",
+            suffix=".tmp",
+            dir=destination.parent,
+            delete=False,
         )
+        temporary_path = Path(temporary_file.name)
+        temporary_file.close()
+        temporary_path.unlink()
 
-    @staticmethod
-    def _write_flight_plans(
-        connection: sqlite3.Connection,
-        result: SimulationResult,
-    ) -> None:
-        rows = []
-
-        def append_plan(
-            uav_name: str,
-            plan_kind: str,
-            version: int,
-            flight_plan: FlightPlan,
-        ) -> None:
-            for index, waypoint in enumerate(flight_plan.waypoint_list):
-                rows.append(
-                    (
-                        uav_name,
-                        plan_kind,
-                        version,
-                        index,
-                        waypoint.x,
-                        waypoint.y,
-                        waypoint.z,
-                        waypoint.t,
-                    )
-                )
-
-        for uav_name, flight_plan in result.proposed_flight_plans.items():
-            append_plan(uav_name, "proposed", 0, flight_plan)
-        for uav_name, history in result.flight_plan_history.items():
-            for version, flight_plan in enumerate(history):
-                append_plan(uav_name, "authorized", version, flight_plan)
-
-        connection.executemany(
-            """
-            INSERT INTO flight_plan_waypoints(
-                uav_name, plan_kind, plan_version, waypoint_index,
-                x, y, z, timestamp
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            rows,
-        )
-
-    @staticmethod
-    def _write_trajectories(
-        connection: sqlite3.Connection,
-        result: SimulationResult,
-    ) -> None:
-        rows = []
-        for uav_name, trajectory in result.trajectory_history.items():
-            velocities = result.velocity_history.get(uav_name, ())
-            for index, (timestamp, position, status) in enumerate(trajectory):
-                velocity = (
-                    velocities[index][1]
-                    if index < len(velocities)
-                    else (0.0, 0.0, 0.0)
-                )
-                rows.append(
-                    (
-                        uav_name,
-                        timestamp,
-                        *position,
-                        *velocity,
-                        status.name,
-                    )
-                )
-        connection.executemany(
-            """
-            INSERT INTO trajectory(
-                uav_name, timestamp, x, y, z, vx, vy, vz, status
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            rows,
-        )
-
-    @classmethod
-    def _write_airspace(
-        cls,
-        connection: sqlite3.Connection,
-        result: SimulationResult,
-    ) -> None:
-        geofences = {
-            geofence.geofence_id: geofence
-            for _, snapshot in result.airspace_history
-            for geofence in snapshot
-        }
-        geofences.update(
-            {
-                geofence.geofence_id: geofence
-                for geofence in result.airspace.geofences
-            }
-        )
-
-        objects = []
-        for geofence in geofences.values():
-            objects.append(
-                (
-                    "geofence",
-                    geofence.geofence_id,
-                    geofence.name,
-                    geofence.geometry,
-                    geofence.active_from,
-                    geofence.active_until,
-                    {},
-                )
+        try:
+            recorder = SimulationDatasetRecorder(
+                path=temporary_path,
+                configuration=result.configuration,
+                metadata=metadata,
             )
-        for obstacle in result.airspace.obstacles:
-            objects.append(
-                (
-                    "obstacle",
-                    obstacle.obstacle_id,
-                    obstacle.name,
-                    obstacle.geometry,
-                    None,
-                    None,
-                    {},
-                )
-            )
-        for wind_zone in result.airspace.wind_zones:
-            objects.append(
-                (
-                    "wind_zone",
-                    wind_zone.wind_id,
-                    wind_zone.name,
-                    wind_zone.geometry,
-                    wind_zone.active_from,
-                    wind_zone.active_until,
-                    {"velocity": list(wind_zone.velocity)},
-                )
-            )
+            try:
+                recorder.flush(result, run_status="SNAPSHOT")
+            finally:
+                recorder.close()
+            os.replace(temporary_path, destination)
+        except Exception:
+            temporary_path.unlink(missing_ok=True)
+            raise
 
-        rows = []
-        for (
-            object_type,
-            object_id,
-            name,
-            geometry,
-            active_from,
-            active_until,
-            properties,
-        ) in objects:
-            geometry_type, geometry_values = _geometry_data(geometry)
-            rows.append(
-                (
-                    object_type,
-                    object_id,
-                    name,
-                    geometry_type,
-                    _json_dumps(geometry_values),
-                    active_from,
-                    active_until,
-                    _json_dumps(properties),
-                )
-            )
-        connection.executemany(
-            """
-            INSERT INTO airspace_objects(
-                object_type, object_id, name, geometry_type, geometry_json,
-                active_from, active_until, properties_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            rows,
-        )
-        connection.executemany(
-            """
-            INSERT INTO airspace_snapshots(timestamp, geofence_ids_json)
-            VALUES (?, ?)
-            """,
-            [
-                (
-                    timestamp,
-                    _json_dumps(
-                        [geofence.geofence_id for geofence in snapshot]
-                    ),
-                )
-                for timestamp, snapshot in result.airspace_history
-            ],
-        )
-
-    @staticmethod
-    def _write_tracking(
-        connection: sqlite3.Connection,
-        result: SimulationResult,
-    ) -> None:
-        reports = {}
-        for _, histories in result.tracking_report_history:
-            for report_history in histories.values():
-                for report in report_history:
-                    reports[
-                        (report.uav_name, report.timestamp, report.received_at)
-                    ] = report
-
-        connection.executemany(
-            """
-            INSERT INTO tracking_reports(
-                uav_name, timestamp, received_at, x, y, z, vx, vy, vz
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                (
-                    report.uav_name,
-                    report.timestamp,
-                    report.received_at,
-                    *report.position,
-                    *report.velocity,
-                )
-                for report in reports.values()
-            ],
-        )
-
-        predictions = {}
-        for _, snapshot in result.tracking_prediction_history:
-            for prediction in snapshot.values():
-                predictions[
-                    (prediction.uav_name, prediction.generated_at)
-                ] = prediction
-
-        prediction_rows = []
-        for prediction in predictions.values():
-            estimated = prediction.estimated_state
-            prediction_rows.append(
-                (
-                    prediction.uav_name,
-                    prediction.generated_at,
-                    "estimated",
-                    -1,
-                    estimated.timestamp,
-                    *estimated.position,
-                    *estimated.velocity,
-                )
-            )
-            for horizon_index, state in enumerate(
-                prediction.predicted_states
-            ):
-                prediction_rows.append(
-                    (
-                        prediction.uav_name,
-                        prediction.generated_at,
-                        "predicted",
-                        horizon_index,
-                        state.timestamp,
-                        *state.position,
-                        *state.velocity,
-                    )
-                )
-        connection.executemany(
-            """
-            INSERT INTO tracking_predictions(
-                uav_name, generated_at, state_kind, horizon_index,
-                predicted_timestamp, x, y, z, vx, vy, vz
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            prediction_rows,
-        )
-
-    @staticmethod
-    def _write_events(
-        connection: sqlite3.Connection,
-        result: SimulationResult,
-    ) -> None:
-        connection.executemany(
-            """
-            INSERT INTO events(timestamp, component, event, details_json)
-            VALUES (?, ?, ?, ?)
-            """,
-            [
-                (
-                    event.timestamp,
-                    event.component,
-                    event.event,
-                    _json_dumps(event.details),
-                )
-                for event in result.event_history
-            ],
-        )
-
-
-class IncrementalSimulationDatasetWriter:
-    """Append simulation records to a SQLite dataset while it is running."""
+        return destination
 
     def __init__(
         self,
@@ -633,7 +309,7 @@ class IncrementalSimulationDatasetWriter:
         try:
             with sqlite3.connect(temporary_path) as connection:
                 connection.execute("PRAGMA foreign_keys = ON")
-                SimulationDatasetWriter._create_schema(connection)
+                _DatasetSchema._create_schema(connection)
                 initial_metadata = {
                     **(metadata or {}),
                     "schema_version": SCHEMA_VERSION,
@@ -659,12 +335,12 @@ class IncrementalSimulationDatasetWriter:
         self._connection.execute("PRAGMA foreign_keys = ON")
         self._connection.execute("PRAGMA journal_mode = WAL")
         self._connection.execute("PRAGMA synchronous = NORMAL")
-        self._trajectory_lengths: dict[str, int] = {}
+        self._state_lengths: dict[str, int] = {}
         self._written_proposed_plans: set[str] = set()
         self._flight_plan_versions: dict[str, int] = {}
         self._airspace_history_length = 0
-        self._tracking_prediction_history_length = 0
-        self._tracking_report_history_length = 0
+        self._tracking_prediction_length = 0
+        self._tracking_report_length = 0
         self._event_history_length = 0
         self._closed = False
 
@@ -679,11 +355,11 @@ class IncrementalSimulationDatasetWriter:
     ) -> None:
         """Persist records added since the previous successful commit."""
         if self._closed:
-            raise RuntimeError("incremental dataset writer is closed")
+            raise RuntimeError("simulation dataset recorder is closed")
 
-        trajectory_lengths = {
+        state_lengths = {
             name: len(history)
-            for name, history in result.trajectory_history.items()
+            for name, history in result.state_history.items()
         }
         flight_plan_versions = {
             name: len(history)
@@ -691,30 +367,28 @@ class IncrementalSimulationDatasetWriter:
         }
         airspace_history_length = len(result.airspace_history)
         prediction_history_length = len(
-            result.tracking_prediction_history
+            result.tracking_predictions
         )
-        report_history_length = len(result.tracking_report_history)
+        report_history_length = len(result.tracking_reports)
         event_history_length = len(result.event_history)
 
         with self._connection:
             self._write_metadata(result, run_status)
             self._write_uavs(result)
             self._write_flight_plans(result)
-            self._write_trajectories(result)
+            self._write_states(result)
             self._write_airspace(result)
             self._write_tracking(result)
             self._write_events(result)
 
-        self._trajectory_lengths = trajectory_lengths
+        self._state_lengths = state_lengths
         self._written_proposed_plans.update(
             result.proposed_flight_plans
         )
         self._flight_plan_versions = flight_plan_versions
         self._airspace_history_length = airspace_history_length
-        self._tracking_prediction_history_length = (
-            prediction_history_length
-        )
-        self._tracking_report_history_length = report_history_length
+        self._tracking_prediction_length = prediction_history_length
+        self._tracking_report_length = report_history_length
         self._event_history_length = event_history_length
 
     def _write_metadata(
@@ -751,9 +425,9 @@ class IncrementalSimulationDatasetWriter:
                 (
                     name,
                     uav.status.name,
-                    _qualified_type_name(uav.dynamics.algorithm),
-                    _qualified_type_name(uav.guidance.algorithm),
-                    _qualified_type_name(uav.sensor_model),
+                    uav.dynamics_type,
+                    uav.guidance_type,
+                    uav.sensor_type,
                 )
                 for name, uav in result.uavs.items()
             ],
@@ -800,25 +474,18 @@ class IncrementalSimulationDatasetWriter:
             rows,
         )
 
-    def _write_trajectories(self, result: SimulationResult) -> None:
+    def _write_states(self, result: SimulationResult) -> None:
         rows = []
-        for name, history in result.trajectory_history.items():
-            first_index = self._trajectory_lengths.get(name, 0)
-            velocities = result.velocity_history.get(name, ())
-            for index in range(first_index, len(history)):
-                timestamp, position, status = history[index]
-                velocity = (
-                    velocities[index][1]
-                    if index < len(velocities)
-                    else (0.0, 0.0, 0.0)
-                )
+        for name, history in result.state_history.items():
+            first_index = self._state_lengths.get(name, 0)
+            for sample in history[first_index:]:
                 rows.append(
                     (
                         name,
-                        timestamp,
-                        *position,
-                        *velocity,
-                        status.name,
+                        sample.timestamp,
+                        *sample.position,
+                        *sample.velocity,
+                        sample.status.name,
                     )
                 )
         self._connection.executemany(
@@ -922,6 +589,8 @@ class IncrementalSimulationDatasetWriter:
             """
             INSERT INTO airspace_snapshots(timestamp, geofence_ids_json)
             VALUES (?, ?)
+            ON CONFLICT(timestamp) DO UPDATE SET
+                geofence_ids_json = excluded.geofence_ids_json
             """,
             [
                 (
@@ -937,15 +606,7 @@ class IncrementalSimulationDatasetWriter:
         )
 
     def _write_tracking(self, result: SimulationResult) -> None:
-        reports = {}
-        for _, histories in result.tracking_report_history[
-            self._tracking_report_history_length:
-        ]:
-            for history in histories.values():
-                for report in history:
-                    reports[
-                        (report.uav_name, report.timestamp, report.received_at)
-                    ] = report
+        reports = result.tracking_reports[self._tracking_report_length:]
         self._connection.executemany(
             """
             INSERT OR IGNORE INTO tracking_reports(
@@ -960,21 +621,14 @@ class IncrementalSimulationDatasetWriter:
                     *report.position,
                     *report.velocity,
                 )
-                for report in reports.values()
+                for report in reports
             ],
         )
 
-        predictions = {}
-        for _, snapshot in result.tracking_prediction_history[
-            self._tracking_prediction_history_length:
-        ]:
-            for prediction in snapshot.values():
-                predictions[
-                    (prediction.uav_name, prediction.generated_at)
-                ] = prediction
-
         rows = []
-        for prediction in predictions.values():
+        for prediction in result.tracking_predictions[
+            self._tracking_prediction_length:
+        ]:
             estimated = prediction.estimated_state
             rows.append(
                 (
@@ -1027,6 +681,14 @@ class IncrementalSimulationDatasetWriter:
                 ]
             ],
         )
+
+    def reset_transient_offsets(self) -> None:
+        """Reset cursors after the caller releases persisted buffers."""
+        self._state_lengths = {}
+        self._airspace_history_length = 0
+        self._tracking_prediction_length = 0
+        self._tracking_report_length = 0
+        self._event_history_length = 0
 
     def close(self) -> None:
         if not self._closed:
