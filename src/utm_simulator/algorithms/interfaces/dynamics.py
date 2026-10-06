@@ -1,11 +1,12 @@
-from typing import Protocol
+from abc import ABC, abstractmethod
 
 
-class DynamicsAlgorithm(Protocol):
+class DynamicsAlgorithm(ABC):
     """
     Contract for UAV dynamics algorithms.
     """
 
+    @abstractmethod
     def step(
         self,
         position: list[float],

@@ -1,14 +1,17 @@
-from typing import Protocol
+from abc import ABC, abstractmethod
+
 from utm_simulator.domain.flight import FlightPlan, Conflict
 from utm_simulator.airspace.airspace import Airspace
 
-class ConflictPredictionAlgorithm(Protocol):
+
+class ConflictPredictionAlgorithm(ABC):
     """
     Contract for conflict prediction algorithms.
 
     Any compatible algorithm must implement the predict() method.
     """
 
+    @abstractmethod
     def predict(
         self,
         proposed_flight_plan: FlightPlan,

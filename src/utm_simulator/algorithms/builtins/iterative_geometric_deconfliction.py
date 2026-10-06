@@ -13,11 +13,14 @@ from utm_simulator.algorithms.builtins.grid_4d import (
     conflict_signature,
     track_waypoints,
 )
+from utm_simulator.algorithms.interfaces.tactical_deconfliction import (
+    TacticalDeconflictionAlgorithm,
+)
 from utm_simulator.domain.flight import Conflict, FlightPlan, Waypoint
 from utm_simulator.domain.tracking import TrackPrediction
 
 
-class IterativeGeometricDeconfliction:
+class IterativeGeometricDeconfliction(TacticalDeconflictionAlgorithm):
     """Separate conflicting future waypoints iteratively in 3-D space.
 
     This implements Equations 10 and 11 of the paper. Times are unchanged.

@@ -1,7 +1,8 @@
+from utm_simulator.algorithms.interfaces.guidance import GuidanceAlgorithm
 from utm_simulator.utils import clip, norm, subtract
 
 
-class WaypointGuidance:
+class WaypointGuidance(GuidanceAlgorithm):
     """
     Calculates a velocity command toward a target waypoint.
 

@@ -1,16 +1,18 @@
-from typing import Protocol, Sequence
+from abc import ABC, abstractmethod
+from typing import Sequence
 
 from utm_simulator.domain.flight import FlightPlan
 from utm_simulator.domain.tracking import TrackPrediction, TrackingReport
 
 
-class TrackingAlgorithm(Protocol):
+class TrackingAlgorithm(ABC):
     """
     Contract for tracking algorithms.
 
     Any compatible algorithm must implement the predict() method.
     """
 
+    @abstractmethod
     def predict(
         self,
         uav_name: str,

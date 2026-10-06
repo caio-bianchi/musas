@@ -9,10 +9,13 @@ from utm_simulator.algorithms.builtins.grid_4d import (
     conflict_signature,
     track_waypoints,
 )
+from utm_simulator.algorithms.interfaces.tactical_conflict_prediction import (
+    TacticalConflictPredictionAlgorithm,
+)
 from utm_simulator.domain.tracking import TrackPrediction
 
 
-class Grid4DConflictPrediction:
+class Grid4DConflictPrediction(TacticalConflictPredictionAlgorithm):
     """Detect spherical-separation conflicts in neighboring 4-D cells."""
 
     def __init__(

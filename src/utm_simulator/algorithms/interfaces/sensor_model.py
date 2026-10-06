@@ -1,11 +1,12 @@
-from typing import Protocol
+from abc import ABC, abstractmethod
 
 
-class SensorModel(Protocol):
+class SensorModel(ABC):
     """
     Contract for models that generate UAV sensor measurements.
     """
 
+    @abstractmethod
     def measure(
         self,
         position: list[float],

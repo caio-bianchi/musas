@@ -1,7 +1,9 @@
 import random
 
+from utm_simulator.algorithms.interfaces.sensor_model import SensorModel
 
-class GaussianSensor:
+
+class GaussianSensor(SensorModel):
     """Add independent zero-mean Gaussian noise to position and velocity."""
 
     def __init__(

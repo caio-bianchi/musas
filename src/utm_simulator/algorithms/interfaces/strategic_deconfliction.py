@@ -1,17 +1,18 @@
-from typing import Protocol
+from abc import ABC, abstractmethod
 
 from utm_simulator.airspace.airspace import Airspace
 from utm_simulator.domain.flight import Conflict, FlightPlan
 from utm_simulator.domain.message_types import StrategicDecision
 
 
-class StrategicDeconflictionAlgorithm(Protocol):
+class StrategicDeconflictionAlgorithm(ABC):
     """
     Contract for strategic deconfliction algorithms.
 
     Any compatible algorithm must implement the deconflict() method.
     """
 
+    @abstractmethod
     def deconflict(
         self,
         proposed_flight_plan: FlightPlan,

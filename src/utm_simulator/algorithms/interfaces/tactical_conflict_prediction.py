@@ -1,15 +1,16 @@
-from typing import Protocol
+from abc import ABC, abstractmethod
 
 from utm_simulator.airspace.airspace import Airspace
 from utm_simulator.domain.flight import Conflict
 from utm_simulator.domain.tracking import TrackPrediction
 
 
-class TacticalConflictPredictionAlgorithm(Protocol):
+class TacticalConflictPredictionAlgorithm(ABC):
     """
     Contract for detecting conflicts in short-term track predictions.
     """
 
+    @abstractmethod
     def predict(
         self,
         updated_track: TrackPrediction,

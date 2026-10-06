@@ -63,6 +63,19 @@ def _callable_name(value) -> str | None:
     return _type_name(value)
 
 
+def _require_algorithm(
+    value: object | None,
+    expected_type: type,
+    parameter_name: str,
+) -> None:
+    """Require injected algorithms to explicitly inherit their interface."""
+    if value is not None and not isinstance(value, expected_type):
+        raise TypeError(
+            f"{parameter_name} must inherit from "
+            f"{expected_type.__name__}"
+        )
+
+
 class Simulation:
     """Assemble and coordinate one UTM simulation."""
 
@@ -171,6 +184,32 @@ class Simulation:
                 raise ValueError(
                     "tracking_algorithm is required for tactical deconfliction"
                 )
+
+        _require_algorithm(
+            strategic_conflict_prediction_algorithm,
+            ConflictPredictionAlgorithm,
+            "strategic_conflict_prediction_algorithm",
+        )
+        _require_algorithm(
+            strategic_deconfliction_algorithm,
+            StrategicDeconflictionAlgorithm,
+            "strategic_deconfliction_algorithm",
+        )
+        _require_algorithm(
+            tracking_algorithm,
+            TrackingAlgorithm,
+            "tracking_algorithm",
+        )
+        _require_algorithm(
+            tactical_conflict_prediction_algorithm,
+            TacticalConflictPredictionAlgorithm,
+            "tactical_conflict_prediction_algorithm",
+        )
+        _require_algorithm(
+            tactical_deconfliction_algorithm,
+            TacticalDeconflictionAlgorithm,
+            "tactical_deconfliction_algorithm",
+        )
 
         self.airspace = airspace
         self.env = simpy.Environment()
@@ -339,6 +378,21 @@ class Simulation:
             raise ValueError(
                 "waypoint_acceptance_radius cannot be negative"
             )
+        _require_algorithm(
+            dynamics_algorithm,
+            DynamicsAlgorithm,
+            "dynamics_algorithm",
+        )
+        _require_algorithm(
+            guidance_algorithm,
+            GuidanceAlgorithm,
+            "guidance_algorithm",
+        )
+        _require_algorithm(
+            sensor_model,
+            SensorModel,
+            "sensor_model",
+        )
 
         uav = UAV(
             name=name,

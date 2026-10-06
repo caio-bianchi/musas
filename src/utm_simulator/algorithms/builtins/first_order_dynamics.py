@@ -1,9 +1,10 @@
 import math
 
+from utm_simulator.algorithms.interfaces.dynamics import DynamicsAlgorithm
 from utm_simulator.utils import norm
 
 
-class FirstOrderDynamics:
+class FirstOrderDynamics(DynamicsAlgorithm):
     """
     First-order velocity response with an acceleration limit.
 
