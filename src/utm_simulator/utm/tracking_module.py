@@ -5,10 +5,15 @@ from collections.abc import Callable
 
 import simpy
 
+from utm_simulator.algorithms.builtins.constant_time_processing import (
+    ConstantTimeProcessing,
+)
 from utm_simulator.algorithms.interfaces.tracking import TrackingAlgorithm
+from utm_simulator.algorithms.interfaces.processing_time import (
+    ProcessingTimeModel,
+)
 from utm_simulator.core.message import Message
 from utm_simulator.core.network import CommunicationNetwork
-from utm_simulator.core.processing_time import ProcessingTime, processing_time_config
 from utm_simulator.domain.message_types import MessageType
 from utm_simulator.domain.tracking import TrackPrediction, TrackingReport
 from utm_simulator.utm.flight_plan_manager import FlightPlanManager
@@ -29,7 +34,7 @@ class TrackingModule:
         prediction_horizon: int,
         prediction_step: float,
         tactical_deconfliction_module: TacticalDeconflictionModule | None = None,
-        processing_time: float | ProcessingTime = 0.0,
+        processing_time: ProcessingTimeModel = ConstantTimeProcessing(0),
         report_observer: Callable[[TrackingReport], None] | None = None,
         prediction_observer: Callable[[TrackPrediction], None] | None = None,
     ) -> None:
@@ -47,7 +52,7 @@ class TrackingModule:
         self.history_window = int(history_window)
         self.prediction_horizon = int(prediction_horizon)
         self.prediction_step = float(prediction_step)
-        self.processing_time = processing_time_config(processing_time)
+        self.processing_time = processing_time
         self.tactical_deconfliction_module = tactical_deconfliction_module
         self.report_observer = report_observer
         self.prediction_observer = prediction_observer
@@ -65,17 +70,17 @@ class TrackingModule:
             message = yield self.inbox.get()
 
             if message.message_type == MessageType.PERIODIC_REPORT:
-                delay = self.processing_time.calculate(
-                    self._processing_context(message)
-                )
-                if delay:
-                    yield self.env.timeout(delay)
-                self.process_report(message)
+                yield self.env.process(self.process_report(message))
 
-    def _processing_context(self, message: Message) -> dict[str, object]:
+    def _processing_context(
+        self,
+        message: Message,
+        operation: str,
+    ) -> dict[str, object]:
         history = self._report_histories.get(message.source, ())
         return {
             "module": self.name,
+            "operation": operation,
             "message": message,
             "uav_name": message.source,
             "queue_length": len(self.inbox.items),
@@ -88,7 +93,7 @@ class TrackingModule:
     def process_report(
         self,
         message: Message,
-    ) -> TrackPrediction | None:
+    ):
         report = TrackingReport(
             uav_name=message.source,
             position=list(message.payload["position"]),
@@ -106,6 +111,14 @@ class TrackingModule:
         if flight_plan is None:
             self._predictions.pop(report.uav_name, None)
             return None
+
+        delay = self.processing_time.calculate(
+            **self._processing_context(message, "tracking_prediction")
+        )
+        if delay < 0:
+            raise ValueError("processing time cannot be negative")
+        if delay:
+            yield self.env.timeout(delay)
 
         prediction = self.algorithm.predict(
             uav_name=report.uav_name,

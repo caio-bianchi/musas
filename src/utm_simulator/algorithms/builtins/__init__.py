@@ -1,3 +1,6 @@
+from utm_simulator.algorithms.builtins.constant_time_processing import (
+    ConstantTimeProcessing,
+)
 from utm_simulator.algorithms.builtins.dummy_strategic_deconfliction import (
     DummyStrategicDeconfliction,
 )
@@ -10,6 +13,7 @@ from utm_simulator.algorithms.builtins.iterative_geometric_deconfliction import 
 )
 
 __all__ = [
+    "ConstantTimeProcessing",
     "DummyStrategicDeconfliction",
     "Grid4DConflict",
     "Grid4DConflictPrediction",

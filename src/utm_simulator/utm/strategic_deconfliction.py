@@ -1,14 +1,19 @@
 import simpy
 
+from utm_simulator.algorithms.builtins.constant_time_processing import (
+    ConstantTimeProcessing,
+)
 from utm_simulator.algorithms.interfaces.conflict_prediction import (
     ConflictPredictionAlgorithm,
 )
 from utm_simulator.algorithms.interfaces.strategic_deconfliction import (
     StrategicDeconflictionAlgorithm,
 )
+from utm_simulator.algorithms.interfaces.processing_time import (
+    ProcessingTimeModel,
+)
 from utm_simulator.core.message import Message
 from utm_simulator.core.network import CommunicationNetwork
-from utm_simulator.core.processing_time import ProcessingTime, processing_time_config
 from utm_simulator.domain.flight import FlightPlan, FlightPlanUpdate
 from utm_simulator.domain.message_types import MessageType, StrategicDecision
 from utm_simulator.utm.flight_plan_manager import FlightPlanManager
@@ -23,7 +28,7 @@ class StrategicDeconflictionModule:
         conflict_prediction_algorithm: ConflictPredictionAlgorithm,
         deconfliction_algorithm: StrategicDeconflictionAlgorithm,
         flight_plan_manager: FlightPlanManager,
-        processing_time: float | ProcessingTime = 0.0,
+        processing_time: ProcessingTimeModel = ConstantTimeProcessing(0),
     ) -> None:
         self.name = name
         self.env = env
@@ -33,7 +38,7 @@ class StrategicDeconflictionModule:
         self.conflict_prediction_algorithm = conflict_prediction_algorithm
         self.deconfliction_algorithm = deconfliction_algorithm
         self.flight_plan_manager = flight_plan_manager
-        self.processing_time = processing_time_config(processing_time)
+        self.processing_time = processing_time
 
         network.register(self)
 
@@ -72,16 +77,6 @@ class StrategicDeconflictionModule:
             yield self._reject_active_proposal(proposal)
             return
 
-        delay = self.processing_time.calculate(
-            self._processing_context(proposal)
-        )
-        if delay:
-            yield self.env.timeout(delay)
-
-        if self.flight_plan_manager.is_active(requesting_uav):
-            yield self._reject_active_proposal(proposal)
-            return
-
         approved_snapshot = {
             uav_name: flight_plan
             for uav_name, flight_plan
@@ -104,6 +99,22 @@ class StrategicDeconflictionModule:
         airspace_snapshot = (
             self.flight_plan_manager.get_airspace_snapshot()
         )
+
+        prediction_delay = self.processing_time.calculate(
+            **self._processing_context(
+                proposal,
+                "conflict_prediction",
+            )
+        )
+        if prediction_delay < 0:
+            raise ValueError("processing time cannot be negative")
+        if prediction_delay:
+            yield self.env.timeout(prediction_delay)
+
+        if self.flight_plan_manager.is_active(requesting_uav):
+            yield self._reject_active_proposal(proposal)
+            return
+
         predicted_conflicts = self.conflict_prediction_algorithm.predict(
             proposed_flight_plan=proposed_flight_plan,
             approved_flight_plans=approved_snapshot,
@@ -127,6 +138,17 @@ class StrategicDeconflictionModule:
             )
 
         else:
+            deconfliction_delay = self.processing_time.calculate(
+                **self._processing_context(
+                    proposal,
+                    "deconfliction",
+                )
+            )
+            if deconfliction_delay < 0:
+                raise ValueError("processing time cannot be negative")
+            if deconfliction_delay:
+                yield self.env.timeout(deconfliction_delay)
+
             decision, counter_proposal, updates = (
                 self.deconfliction_algorithm.deconflict(
                     proposed_flight_plan=proposed_flight_plan,
@@ -245,11 +267,16 @@ class StrategicDeconflictionModule:
         )
         return self.network.send(response)
 
-    def _processing_context(self, proposal: Message) -> dict[str, object]:
+    def _processing_context(
+        self,
+        proposal: Message,
+        operation: str,
+    ) -> dict[str, object]:
         flight_plan = proposal.payload["flight_plan"]
         airspace = self.flight_plan_manager.get_airspace_snapshot()
         return {
             "module": self.name,
+            "operation": operation,
             "message": proposal,
             "uav_name": proposal.source,
             "queue_length": len(self.inbox.items),

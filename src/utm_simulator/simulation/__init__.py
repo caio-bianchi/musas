@@ -1,4 +1,9 @@
-from utm_simulator.core.processing_time import ProcessingMode, ProcessingTime
+from utm_simulator.algorithms.builtins.constant_time_processing import (
+    ConstantTimeProcessing,
+)
+from utm_simulator.algorithms.interfaces.processing_time import (
+    ProcessingTimeModel,
+)
 from utm_simulator.simulation.dataset import (
     SimulationDataset,
     SimulationDatasetRecorder,
@@ -18,8 +23,8 @@ from utm_simulator.simulation.visualization import (
 
 __all__ = [
     "AirspaceSnapshot",
-    "ProcessingMode",
-    "ProcessingTime",
+    "ConstantTimeProcessing",
+    "ProcessingTimeModel",
     "Simulation",
     "SimulationDataset",
     "SimulationDatasetRecorder",

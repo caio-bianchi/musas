@@ -1,14 +1,19 @@
 import simpy
 
+from utm_simulator.algorithms.builtins.constant_time_processing import (
+    ConstantTimeProcessing,
+)
 from utm_simulator.algorithms.interfaces.tactical_conflict_prediction import (
     TacticalConflictPredictionAlgorithm,
 )
 from utm_simulator.algorithms.interfaces.tactical_deconfliction import (
     TacticalDeconflictionAlgorithm,
 )
+from utm_simulator.algorithms.interfaces.processing_time import (
+    ProcessingTimeModel,
+)
 from utm_simulator.core.message import Message
 from utm_simulator.core.network import CommunicationNetwork
-from utm_simulator.core.processing_time import ProcessingTime, processing_time_config
 from utm_simulator.domain.flight import Conflict, FlightPlan, FlightPlanUpdate
 from utm_simulator.domain.message_types import MessageType
 from utm_simulator.domain.tracking import TrackPrediction
@@ -26,7 +31,7 @@ class TacticalDeconflictionModule:
         conflict_prediction_algorithm: TacticalConflictPredictionAlgorithm,
         deconfliction_algorithm: TacticalDeconflictionAlgorithm,
         flight_plan_manager: FlightPlanManager,
-        processing_time: float | ProcessingTime = 0.0,
+        processing_time: ProcessingTimeModel = ConstantTimeProcessing(0),
     ) -> None:
 
         self.name = name
@@ -35,7 +40,7 @@ class TacticalDeconflictionModule:
         self.conflict_prediction_algorithm = conflict_prediction_algorithm
         self.deconfliction_algorithm = deconfliction_algorithm
         self.flight_plan_manager = flight_plan_manager
-        self.processing_time = processing_time_config(processing_time)
+        self.processing_time = processing_time
 
         self.inbox = simpy.Store(env)
         self._tracks: dict[str, TrackPrediction] = {}
@@ -51,30 +56,34 @@ class TacticalDeconflictionModule:
             message = yield self.inbox.get()
 
             if message.message_type == MessageType.TRACK_UPDATE:
-                delay = self.processing_time.calculate(
-                    self._processing_context(message)
+                yield self.env.process(
+                    self.process_track_update(message)
                 )
-                if delay:
-                    yield self.env.timeout(delay)
-                self.process_track_update(message)
 
-    def _processing_context(self, message: Message) -> dict[str, object]:
+    def _processing_context(
+        self,
+        message: Message,
+        operation: str,
+        conflict_count: int = 0,
+    ) -> dict[str, object]:
         updated_track = message.payload["track_prediction"]
         incoming_uav_is_new = updated_track.uav_name not in self._tracks
         return {
             "module": self.name,
+            "operation": operation,
             "message": message,
             "uav_name": updated_track.uav_name,
             "queue_length": len(self.inbox.items),
             "track_count": len(self._tracks) + int(incoming_uav_is_new),
             "flight_plan_count": len(self.flight_plan_manager.get_all()),
             "predicted_state_count": len(updated_track.predicted_states),
+            "conflict_count": conflict_count,
         }
 
     def process_track_update(
         self,
         message: Message,
-    ) -> list[FlightPlanUpdate] | None:
+    ):
         updated_track = message.payload["track_prediction"]
         if updated_track.uav_name in self._completed_uavs:
             return None
@@ -89,6 +98,17 @@ class TacticalDeconflictionModule:
         self._tracks[updated_track.uav_name] = updated_track
 
         airspace = self.flight_plan_manager.get_airspace_snapshot()
+        prediction_delay = self.processing_time.calculate(
+            **self._processing_context(
+                message,
+                "conflict_prediction",
+            )
+        )
+        if prediction_delay < 0:
+            raise ValueError("processing time cannot be negative")
+        if prediction_delay:
+            yield self.env.timeout(prediction_delay)
+
         conflicts = self.conflict_prediction_algorithm.predict(
             updated_track=updated_track,
             tracks=self.get_all_tracks(),
@@ -105,6 +125,18 @@ class TacticalDeconflictionModule:
             uav=updated_track.uav_name,
             conflict_count=len(conflicts),
         )
+
+        deconfliction_delay = self.processing_time.calculate(
+            **self._processing_context(
+                message,
+                "deconfliction",
+                conflict_count=len(conflicts),
+            )
+        )
+        if deconfliction_delay < 0:
+            raise ValueError("processing time cannot be negative")
+        if deconfliction_delay:
+            yield self.env.timeout(deconfliction_delay)
 
         updates = self.deconfliction_algorithm.deconflict(
             conflicts=conflicts,
