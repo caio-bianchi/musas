@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +29,7 @@ from utm_simulator.algorithms.builtins.dummy_strategic_deconfliction import (
 from utm_simulator.core.network import CommunicationNetwork
 from utm_simulator.core.processing_time import ProcessingTime, processing_time_config
 from utm_simulator.domain.flight import FlightPlan
+from utm_simulator.domain.message_types import MessageType
 from utm_simulator.domain.tracking import TrackPrediction, TrackingReport
 from utm_simulator.uav.uav import UAV, UAVStatus
 from utm_simulator.utm.flight_plan_manager import FlightPlanManager
@@ -46,6 +48,17 @@ from utm_simulator.simulation.result import (
     UAVStateSample,
 )
 from utm_simulator.simulation.dataset import SimulationDatasetRecorder
+
+
+DEFAULT_MESSAGE_TYPES_TO_LOG = frozenset(
+    message_type
+    for message_type in MessageType
+    if message_type
+    not in {
+        MessageType.PERIODIC_REPORT,
+        MessageType.TRACK_UPDATE,
+    }
+)
 
 
 def _type_name(value) -> str | None:
@@ -98,6 +111,9 @@ class Simulation:
             TacticalDeconflictionAlgorithm | None
         ) = None,
         network_delay: float = 0.0,
+        message_types_to_log: Collection[MessageType] | None = (
+            DEFAULT_MESSAGE_TYPES_TO_LOG
+        ),
         flight_update_interval: float = 0.1,
         trajectory_record_interval: float = 0.2,
         report_interval: float = 0.5,
@@ -218,6 +234,7 @@ class Simulation:
         self.network = CommunicationNetwork(
             env=self.env,
             delay=network_delay,
+            message_types_to_log=message_types_to_log,
         )
         self.flight_update_interval = float(flight_update_interval)
         self.trajectory_record_interval = float(
@@ -235,6 +252,14 @@ class Simulation:
         self.keep_history_in_memory = bool(keep_history_in_memory)
         self.configuration = {
             "network_delay": float(network_delay),
+            "message_types_to_log": (
+                None
+                if self.network.message_types_to_log is None
+                else sorted(
+                    message_type.name
+                    for message_type in self.network.message_types_to_log
+                )
+            ),
             "flight_update_interval": self.flight_update_interval,
             "trajectory_record_interval": self.trajectory_record_interval,
             "report_interval": self.report_interval,
