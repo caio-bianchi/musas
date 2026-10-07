@@ -1,17 +1,9 @@
 import simpy
 
-from utm_simulator.algorithms.builtins.constant_time_processing import (
-    ConstantTimeProcessing,
-)
-from utm_simulator.algorithms.interfaces.conflict_prediction import (
-    ConflictPredictionAlgorithm,
-)
-from utm_simulator.algorithms.interfaces.strategic_deconfliction import (
-    StrategicDeconflictionAlgorithm,
-)
-from utm_simulator.algorithms.interfaces.processing_time import (
-    ProcessingTimeModel,
-)
+from utm_simulator.algorithms.builtins.constant_time_processing import ConstantTimeProcessing
+from utm_simulator.algorithms.interfaces.conflict_prediction import ConflictPredictionAlgorithm
+from utm_simulator.algorithms.interfaces.strategic_deconfliction import StrategicDeconflictionAlgorithm
+from utm_simulator.algorithms.interfaces.processing_time import ProcessingTimeModel
 from utm_simulator.core.message import Message
 from utm_simulator.core.network import CommunicationNetwork
 from utm_simulator.domain.flight import FlightPlan, FlightPlanUpdate
@@ -47,20 +39,15 @@ class StrategicDeconflictionModule:
             message = yield self.inbox.get()
 
             if message.message_type == MessageType.PROPOSAL:
-                # Here, I wait for the proposal is processed
                 yield self.env.process(
                     self._process_proposal(message)
                 )
 
             elif message.message_type == MessageType.FLIGHT_STARTED:
-                self.flight_plan_manager.activate(
-                    message.source
-                )
+                self.flight_plan_manager.activate(message.source)
 
             elif message.message_type == MessageType.FLIGHT_COMPLETED:
-                self.flight_plan_manager.complete(
-                    message.source
-                )
+                self.flight_plan_manager.complete(message.source)
 
     def _process_proposal(self, proposal: Message):
         proposal_id = proposal.message_id

@@ -35,6 +35,8 @@ class TrackingModule:
         prediction_step: float,
         tactical_deconfliction_module: TacticalDeconflictionModule | None = None,
         processing_time: ProcessingTimeModel = ConstantTimeProcessing(0),
+        # functions that are called by simulation when report is observed or prediction is computed
+        # if they are None, tracking keeps working, but these data are not sent to Simulation.
         report_observer: Callable[[TrackingReport], None] | None = None,
         prediction_observer: Callable[[TrackPrediction], None] | None = None,
     ) -> None:

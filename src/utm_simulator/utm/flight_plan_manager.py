@@ -30,10 +30,7 @@ class FlightPlanManager:
 
         network.register(self)
 
-    def add_completion_observer(
-        self,
-        observer: Callable[[str], None],
-    ) -> None:
+    def add_completion_observer(self, observer: Callable[[str], None]) -> None: # methods that are called when flight is completed
         if observer not in self._completion_observers:
             self._completion_observers.append(observer)
 
