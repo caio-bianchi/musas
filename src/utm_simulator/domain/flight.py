@@ -1,6 +1,30 @@
 from __future__ import annotations
+from dataclasses import dataclass, field
 
-from dataclasses import dataclass
+@dataclass
+class Waypoint:
+    x: float
+    y: float
+    z: float
+    t: float
+
+    def __post_init__(self) -> None:
+        self.x = float(self.x)
+        self.y = float(self.y)
+        self.z = float(self.z)
+        self.t = float(self.t)
+
+    def position(self) -> list[float]:
+        return [self.x, self.y, self.z]
+
+    def timestamp(self) -> float:
+        return self.t
+
+    def __str__(self) -> str:
+        return f"[{self.x}, {self.y}, {self.z}, {self.t}]"
+
+    def __lt__(self, other: Waypoint) -> bool:
+        return self.t < other.t
 
 
 class Conflict():
@@ -10,41 +34,21 @@ class Conflict():
     Users may define their own conflict types by subclassing this class.
     """
 
-# Is it better to state Flight Plan as a class or as a file?
+@dataclass
 class FlightPlan:
-    def __init__(self, waypoint_list: list[Waypoint])->None:
-        waypoint_list.sort()
-        self.waypoint_list = waypoint_list
+    waypoint_list: list[Waypoint] = field(default_factory=list)
 
-    def add_waypoint(self, waypoint: Waypoint)->None:
+    def __post_init__(self) -> None: # sort waypoint list (w/ respect to timestamps)
+        self.waypoint_list.sort()
+
+    def add_waypoint(self, waypoint: Waypoint) -> None:
         self.waypoint_list.append(waypoint)
         self.waypoint_list.sort()
 
-    def print_waypoint_list(self)->None:
-        for wp in self.waypoint_list:
-            print(wp)
-
-
-@dataclass(frozen=True)
+@dataclass
 class FlightPlanUpdate:
-    """Request to replace the current flight plan of a UAV."""
-
+    """New flight plan to be issued."""
     uav_name: str
     flight_plan: FlightPlan
 
 
-class Waypoint:
-    def __init__(self, x, y, z, t)->None:
-        self.x = float(x)
-        self.y = float(y)
-        self.z = float(z)
-        self.t = float(t)
-
-    def position(self)->list[float]:
-        return [self.x, self.y, self.z]
-
-    def __str__(self) -> str:
-        return f"[{self.x}, {self.y}, {self.z}, {self.t}]"
-
-    def __lt__(self, other: Waypoint) -> bool:
-        return self.t < other.t
