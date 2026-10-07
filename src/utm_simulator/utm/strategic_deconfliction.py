@@ -68,11 +68,19 @@ class StrategicDeconflictionModule:
             proposal_id=proposal_id,
         )
 
+        if self.flight_plan_manager.is_active(requesting_uav):
+            yield self._reject_active_proposal(proposal)
+            return
+
         delay = self.processing_time.calculate(
             self._processing_context(proposal)
         )
         if delay:
             yield self.env.timeout(delay)
+
+        if self.flight_plan_manager.is_active(requesting_uav):
+            yield self._reject_active_proposal(proposal)
+            return
 
         approved_snapshot = {
             uav_name: flight_plan
@@ -80,6 +88,18 @@ class StrategicDeconflictionModule:
             in self.flight_plan_manager.get_all().items()
             if uav_name != requesting_uav
         }  # All, except the requesting
+        active_snapshot = {
+            uav_name: flight_plan
+            for uav_name, flight_plan
+            in self.flight_plan_manager.get_active().items()
+            if uav_name != requesting_uav
+        }
+        inactive_snapshot = {
+            uav_name: flight_plan
+            for uav_name, flight_plan
+            in self.flight_plan_manager.get_inactive_approved().items()
+            if uav_name != requesting_uav
+        }
 
         airspace_snapshot = (
             self.flight_plan_manager.get_airspace_snapshot()
@@ -111,9 +131,16 @@ class StrategicDeconflictionModule:
                 self.deconfliction_algorithm.deconflict(
                     proposed_flight_plan=proposed_flight_plan,
                     conflicts=predicted_conflicts,
-                    approved_flight_plans=approved_snapshot,
+                    inactive_flight_plans=inactive_snapshot,
+                    active_flight_plans=active_snapshot,
                     airspace=airspace_snapshot,
                 )
+            )
+
+            self._validate_strategic_updates(
+                updates,
+                inactive_snapshot,
+                active_snapshot,
             )
 
             plan_version = self._apply_decision(
@@ -124,17 +151,89 @@ class StrategicDeconflictionModule:
                 updates=updates,
             )
 
-        self.network.record_event(
-            component=self.name,
-            event="STRATEGIC_DECISION_MADE",
-            uav=requesting_uav,
-            decision=decision.value,
+        yield self._send_response(
+            proposal=proposal,
+            decision=decision,
+            counter_proposal=counter_proposal,
+            plan_version=plan_version,
             update_count=len(updates),
         )
 
-        final_response = Message(
+    def _validate_strategic_updates(
+        self,
+        updates: list[FlightPlanUpdate],
+        inactive_flight_plans: dict[str, FlightPlan],
+        active_flight_plans: dict[str, FlightPlan],
+    ) -> None:
+        if any(
+            not isinstance(update, FlightPlanUpdate)
+            for update in updates
+        ):
+            raise TypeError(
+                "strategic updates must be FlightPlanUpdate instances"
+            )
+        active_targets = sorted({
+            update.uav_name
+            for update in updates
+            if (
+                update.uav_name in active_flight_plans
+                or self.flight_plan_manager.is_active(update.uav_name)
+            )
+        })
+        if active_targets:
+            self.network.record_event(
+                component=self.name,
+                event="INVALID_ACTIVE_FLIGHT_STRATEGIC_UPDATE",
+                target_uavs=active_targets,
+            )
+            raise ValueError(
+                "strategic deconfliction cannot update active flight plans: "
+                f"{active_targets}"
+            )
+        ineligible_targets = sorted({
+            update.uav_name
+            for update in updates
+            if update.uav_name not in inactive_flight_plans
+        })
+        if ineligible_targets:
+            raise ValueError(
+                "strategic deconfliction can update only inactive approved "
+                f"flight plans: {ineligible_targets}"
+            )
+
+    def _reject_active_proposal(self, proposal: Message):
+        self.network.record_event(
+            component=self.name,
+            event="ACTIVE_FLIGHT_STRATEGIC_PROPOSAL_REJECTED",
+            uav=proposal.source,
+            proposal_id=proposal.message_id,
+        )
+        return self._send_response(
+            proposal=proposal,
+            decision=StrategicDecision.REJECT,
+            counter_proposal=None,
+            plan_version=None,
+            update_count=0,
+        )
+
+    def _send_response(
+        self,
+        proposal: Message,
+        decision: StrategicDecision,
+        counter_proposal: FlightPlan | None,
+        plan_version: int | None,
+        update_count: int,
+    ):
+        self.network.record_event(
+            component=self.name,
+            event="STRATEGIC_DECISION_MADE",
+            uav=proposal.source,
+            decision=decision.value,
+            update_count=update_count,
+        )
+        response = Message(
             source=self.name,
-            destination=requesting_uav,
+            destination=proposal.source,
             message_type=MessageType.SD_RESPONSE,
             payload={
                 "decision": decision,
@@ -142,10 +241,9 @@ class StrategicDeconflictionModule:
                 "plan_version": plan_version,
             },
             issue_timestamp=self.env.now,
-            in_reply_to=proposal_id,
+            in_reply_to=proposal.message_id,
         )
-
-        yield self.network.send(final_response)
+        return self.network.send(response)
 
     def _processing_context(self, proposal: Message) -> dict[str, object]:
         flight_plan = proposal.payload["flight_plan"]

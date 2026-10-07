@@ -110,6 +110,21 @@ class FlightPlanManager:
     def get_all(self) -> dict[str, FlightPlan]:
         return self._approved_flight_plans.copy()
 
+    def get_active(self) -> dict[str, FlightPlan]:
+        """Return the flight plans currently being executed."""
+        return self._active_flight_plans.copy()
+
+    def get_inactive_approved(self) -> dict[str, FlightPlan]:
+        """Return approved flight plans that have not been activated."""
+        return {
+            uav_name: flight_plan
+            for uav_name, flight_plan in self._approved_flight_plans.items()
+            if uav_name not in self._active_flight_plans
+        }
+
+    def is_active(self, uav_name: str) -> bool:
+        return uav_name in self._active_flight_plans
+
     def remove(self, uav_name: str) -> FlightPlan | None:
         return self._approved_flight_plans.pop(uav_name, None)
 

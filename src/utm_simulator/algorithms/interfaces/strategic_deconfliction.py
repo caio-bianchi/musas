@@ -17,7 +17,8 @@ class StrategicDeconflictionAlgorithm(ABC):
         self,
         proposed_flight_plan: FlightPlan,
         conflicts: list[Conflict],
-        approved_flight_plans: dict[str, FlightPlan],
+        inactive_flight_plans: dict[str, FlightPlan],
+        active_flight_plans: dict[str, FlightPlan],
         airspace: Airspace,
     ) -> tuple[
         StrategicDecision,
@@ -29,5 +30,8 @@ class StrategicDeconflictionAlgorithm(ABC):
 
         Returns the strategic decision, an optional counterproposal,
         and updates to other flight plans.
+
+        Inactive flight plans may be updated. Active flight plans are
+        immutable context that must still be considered by the algorithm.
         """
         ...

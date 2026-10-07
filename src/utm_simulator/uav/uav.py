@@ -107,6 +107,11 @@ class UAV:
         self,
         flight_plan: FlightPlan,
     ) -> None:
+        if self.status == UAVStatus.ACTIVE:
+            raise RuntimeError(
+                "an active flight plan cannot be replaced through "
+                "strategic deconfliction"
+            )
         proposal = Message(
             source=self.name,
             destination=self.strategic_deconfliction_module.name,
