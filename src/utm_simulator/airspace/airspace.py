@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 
 from utm_simulator.airspace.restrictions import Geofence, Obstacle
 from utm_simulator.airspace.wind import WindZone
+from typing import Sequence
 
 
 @dataclass
@@ -73,7 +74,7 @@ class Airspace:
             if wind_zone.is_active_at(timestamp)
         ]
 
-    def wind_zones_affecting_position(self, position: list[float], timestamp: float) -> list[WindZone]:
+    def wind_zones_affecting_position(self, position: Sequence[float], timestamp: float) -> list[WindZone]:
         """
             Returns the list of active wind zones at a given timestamp that contain 
             a given position.
@@ -84,7 +85,7 @@ class Airspace:
             if wind_zone.geometry.contains(position)
         ]
 
-    def wind_at(self, position: list[float], timestamp: float) -> list[float]:
+    def wind_at(self, position: Sequence[float], timestamp: float) -> list[float]:
         """
             Returns the resulting wind velocity vector at a given position and at a given timestamp.
         """
@@ -94,7 +95,7 @@ class Airspace:
             for axis in range(3)
         ]
 
-    def prohibited_regions_at(self, position: list[float], timestamp: float) -> list[Obstacle | Geofence]:
+    def prohibited_regions_at(self, position: Sequence[float], timestamp: float) -> list[Obstacle | Geofence]:
         containing_obstacles = [
             obstacle
             for obstacle in self.obstacles.values()
@@ -108,5 +109,5 @@ class Airspace:
 
         return containing_obstacles + containing_geofences
     
-    def is_prohibited(self, position: list[float], timestamp: float) -> bool:
+    def is_prohibited(self, position: Sequence[float], timestamp: float) -> bool:
         return len(self.prohibited_regions_at(position, timestamp)) > 0
