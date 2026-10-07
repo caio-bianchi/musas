@@ -1,19 +1,19 @@
 from dataclasses import dataclass
 
 from utm_simulator.airspace.geometry import Geometry
+from typing import Sequence
 
-
-@dataclass(frozen=True)
+@dataclass
 class Obstacle:
     obstacle_id: str
     geometry: Geometry
     name: str | None = None
 
-    def contains(self, position) -> bool:
+    def contains(self, position: Sequence[float]) -> bool:
         return self.geometry.contains(position)
 
 
-@dataclass(frozen=True)
+@dataclass
 class Geofence:
     """A static or temporally activated KEEP_OUT region."""
 
@@ -31,5 +31,5 @@ class Geofence:
 
         return True
 
-    def prohibits(self, position, timestamp: float) -> bool:
+    def prohibits(self, position: Sequence[float], timestamp: float) -> bool:
         return self.is_active_at(timestamp) and self.geometry.contains(position)
