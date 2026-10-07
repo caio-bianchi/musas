@@ -109,4 +109,4 @@ class Airspace:
         return containing_obstacles + containing_geofences
     
     def is_prohibited(self, position: list[float], timestamp: float) -> bool:
-        return bool(self.prohibited_regions_at(position, timestamp))
+        return len(self.prohibited_regions_at(position, timestamp)) > 0
