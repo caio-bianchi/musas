@@ -16,7 +16,12 @@ from utm_simulator.algorithms.builtins.grid_4d import (
 from utm_simulator.algorithms.interfaces.tactical_deconfliction import (
     TacticalDeconflictionAlgorithm,
 )
-from utm_simulator.domain.flight import Conflict, FlightPlan, Waypoint
+from utm_simulator.domain.flight import (
+    Conflict,
+    FlightPlan,
+    FlightPlanUpdate,
+    Waypoint,
+)
 from utm_simulator.domain.tracking import TrackPrediction
 
 
@@ -58,7 +63,7 @@ class IterativeGeometricDeconfliction(TacticalDeconflictionAlgorithm):
         tracks: dict[str, TrackPrediction],
         flight_plans: dict[str, FlightPlan],
         airspace: Airspace,
-    ) -> dict[str, FlightPlan]:
+    ) -> list[FlightPlanUpdate]:
         waypoints = track_waypoints(tracks)
         grid = Sparse4DGrid(
             separation=self.minimum_separation,
@@ -111,16 +116,19 @@ class IterativeGeometricDeconfliction(TacticalDeconflictionAlgorithm):
                     queue.append(conflict)
                     queued.add(new_signature)
 
-        return {
-            uav_name: self._flight_plan_from_solution(
-                uav_name,
-                tracks[uav_name],
-                flight_plans[uav_name],
-                waypoints,
+        return [
+            FlightPlanUpdate(
+                uav_name=uav_name,
+                flight_plan=self._flight_plan_from_solution(
+                    uav_name,
+                    tracks[uav_name],
+                    flight_plans[uav_name],
+                    waypoints,
+                ),
             )
             for uav_name in changed_uavs
             if uav_name in tracks and uav_name in flight_plans
-        }
+        ]
 
     def _separate(
         self,

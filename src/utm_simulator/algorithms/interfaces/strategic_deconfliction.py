@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 from utm_simulator.airspace.airspace import Airspace
-from utm_simulator.domain.flight import Conflict, FlightPlan
+from utm_simulator.domain.flight import Conflict, FlightPlan, FlightPlanUpdate
 from utm_simulator.domain.message_types import StrategicDecision
 
 
@@ -22,7 +22,7 @@ class StrategicDeconflictionAlgorithm(ABC):
     ) -> tuple[
         StrategicDecision,
         FlightPlan | None,
-        dict[str, FlightPlan],
+        list[FlightPlanUpdate],
     ]:
         """
         Attempt to resolve conflicts affecting a proposed flight plan.

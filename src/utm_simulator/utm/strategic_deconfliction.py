@@ -9,7 +9,7 @@ from utm_simulator.algorithms.interfaces.strategic_deconfliction import (
 from utm_simulator.core.message import Message
 from utm_simulator.core.network import CommunicationNetwork
 from utm_simulator.core.processing_time import ProcessingTime, processing_time_config
-from utm_simulator.domain.flight import FlightPlan
+from utm_simulator.domain.flight import FlightPlan, FlightPlanUpdate
 from utm_simulator.domain.message_types import MessageType, StrategicDecision
 from utm_simulator.utm.flight_plan_manager import FlightPlanManager
 
@@ -99,7 +99,7 @@ class StrategicDeconflictionModule:
         if not predicted_conflicts:
             decision = StrategicDecision.APPROVE
             counter_proposal = None
-            updates = {}
+            updates: list[FlightPlanUpdate] = []
 
             plan_version = self.flight_plan_manager.approve(
                 requesting_uav,
@@ -169,7 +169,7 @@ class StrategicDeconflictionModule:
         proposed_flight_plan: FlightPlan,
         decision: StrategicDecision,
         counter_proposal: FlightPlan | None,
-        updates: dict[str, FlightPlan],
+        updates: list[FlightPlanUpdate],
     ) -> int | None:
         plan_version = None
         if decision == StrategicDecision.COUNTER_PROPOSAL:

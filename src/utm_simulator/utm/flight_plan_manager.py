@@ -1,11 +1,11 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 
 import simpy
 
 from utm_simulator.airspace.airspace import Airspace
 from utm_simulator.core.message import Message
 from utm_simulator.core.network import CommunicationNetwork
-from utm_simulator.domain.flight import FlightPlan
+from utm_simulator.domain.flight import FlightPlan, FlightPlanUpdate
 from utm_simulator.domain.message_types import MessageType
 
 
@@ -116,13 +116,30 @@ class FlightPlanManager:
     def get_history(self, uav_name: str) -> list[FlightPlan]:
         return list(self._history.get(uav_name, []))
 
-    def launch_updates(self, updates: dict[str, FlightPlan]) -> None:
+    def launch_updates(
+        self,
+        updates: Sequence[FlightPlanUpdate],
+    ) -> None:
+        if any(
+            not isinstance(update, FlightPlanUpdate)
+            for update in updates
+        ):
+            raise TypeError(
+                "updates must contain only FlightPlanUpdate instances"
+            )
+        uav_names = [update.uav_name for update in updates]
+        if len(set(uav_names)) != len(uav_names):
+            raise ValueError(
+                "updates cannot contain more than one plan for the same UAV"
+            )
         self.network.record_event(
             component=self.name,
             event="FLIGHT_PLAN_UPDATES_LAUNCHED",
-            uavs=list(updates),
+            uavs=uav_names,
         )
-        for uav_name, flight_plan in updates.items():
+        for update in updates:
+            uav_name = update.uav_name
+            flight_plan = update.flight_plan
             plan_version = self.approve(uav_name, flight_plan)
 
             if uav_name in self._active_flight_plans:

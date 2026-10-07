@@ -9,7 +9,7 @@ from utm_simulator.algorithms.interfaces.tactical_deconfliction import (
 from utm_simulator.core.message import Message
 from utm_simulator.core.network import CommunicationNetwork
 from utm_simulator.core.processing_time import ProcessingTime, processing_time_config
-from utm_simulator.domain.flight import Conflict, FlightPlan
+from utm_simulator.domain.flight import Conflict, FlightPlan, FlightPlanUpdate
 from utm_simulator.domain.message_types import MessageType
 from utm_simulator.domain.tracking import TrackPrediction
 from utm_simulator.utm.flight_plan_manager import FlightPlanManager
@@ -71,7 +71,10 @@ class TacticalDeconflictionModule:
             "predicted_state_count": len(updated_track.predicted_states),
         }
 
-    def process_track_update(self, message: Message) -> dict[str, FlightPlan] | None:
+    def process_track_update(
+        self,
+        message: Message,
+    ) -> list[FlightPlanUpdate] | None:
         updated_track = message.payload["track_prediction"]
         if updated_track.uav_name in self._completed_uavs:
             return None
@@ -113,12 +116,15 @@ class TacticalDeconflictionModule:
             self.network.record_event(
                 component=self.name,
                 event="TACTICAL_UPDATES_ISSUED",
-                uavs=list(updates),
+                uavs=[update.uav_name for update in updates],
             )
-            self._issued_updates.update(updates)
-            for uav_name, flight_plan in updates.items():
-                self._issued_update_history.setdefault(uav_name, []).append(
-                    flight_plan
+            for update in updates:
+                self._issued_updates[update.uav_name] = update.flight_plan
+                self._issued_update_history.setdefault(
+                    update.uav_name,
+                    [],
+                ).append(
+                    update.flight_plan
                 )
             self.flight_plan_manager.launch_updates(updates)
         return updates

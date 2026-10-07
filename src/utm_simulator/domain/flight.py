@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
+
 class Conflict():
     """
     Base class for conflict representations.
@@ -20,6 +23,15 @@ class FlightPlan:
     def print_waypoint_list(self)->None:
         for wp in self.waypoint_list:
             print(wp)
+
+
+@dataclass(frozen=True)
+class FlightPlanUpdate:
+    """Request to replace the current flight plan of a UAV."""
+
+    uav_name: str
+    flight_plan: FlightPlan
+
 
 class Waypoint:
     def __init__(self, x, y, z, t)->None:

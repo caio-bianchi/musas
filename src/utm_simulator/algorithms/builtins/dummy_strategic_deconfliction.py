@@ -5,7 +5,7 @@ from utm_simulator.algorithms.interfaces.conflict_prediction import (
 from utm_simulator.algorithms.interfaces.strategic_deconfliction import (
     StrategicDeconflictionAlgorithm,
 )
-from utm_simulator.domain.flight import Conflict, FlightPlan
+from utm_simulator.domain.flight import Conflict, FlightPlan, FlightPlanUpdate
 from utm_simulator.domain.message_types import StrategicDecision
 
 
@@ -32,6 +32,6 @@ class DummyStrategicDeconfliction(
     ) -> tuple[
         StrategicDecision,
         FlightPlan | None,
-        dict[str, FlightPlan],
+        list[FlightPlanUpdate],
     ]:
-        return StrategicDecision.APPROVE, None, {}
+        return StrategicDecision.APPROVE, None, []
