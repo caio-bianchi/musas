@@ -6,8 +6,8 @@ from utm_simulator.airspace.wind import WindZone
 
 @dataclass
 class Airspace:
-    obstacles: dict[str, Obstacle]
-    geofences: dict[str, Geofence]
+    obstacles: dict[str, Obstacle] = field(default_factory=dict)
+    geofences: dict[str, Geofence] = field(default_factory=dict)
     wind_zones: dict[str, WindZone] = field(default_factory=dict)
 
     def add_obstacle(self, obstacle: Obstacle) -> None:
