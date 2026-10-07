@@ -11,7 +11,7 @@ class Airspace:
     wind_zones: dict[str, WindZone] = field(default_factory=dict)
 
     def add_obstacle(self, obstacle: Obstacle) -> None:
-        if obstacle.obstacle_id in self.obstacles:
+        if obstacle.obstacle_id in self.obstacles.keys():
             raise ValueError(
                 f"Obstacle {obstacle.obstacle_id!r} already exists"
             )
@@ -26,7 +26,7 @@ class Airspace:
             ) from None
 
     def add_geofence(self, geofence: Geofence) -> None:
-        if geofence.geofence_id in self.geofences:
+        if geofence.geofence_id in self.geofences.keys():
             raise ValueError(
                 f"Geofence {geofence.geofence_id!r} already exists"
             )
@@ -42,6 +42,9 @@ class Airspace:
             ) from None
 
     def active_geofences_at(self, timestamp: float) -> list[Geofence]:
+        """
+        Returns the list of active geofences at a given timestamp.
+        """
         return [
             geofence
             for geofence in self.geofences.values()
@@ -49,7 +52,7 @@ class Airspace:
         ]
 
     def add_wind_zone(self, wind_zone: WindZone) -> None:
-        if wind_zone.wind_id in self.wind_zones:
+        if wind_zone.wind_id in self.wind_zones.keys():
             raise ValueError(
                 f"Wind zone {wind_zone.wind_id!r} already exists"
             )
@@ -63,32 +66,35 @@ class Airspace:
                 f"Wind zone {wind_id!r} does not exist"
             ) from None
 
-    def active_wind_zones_at(self, timestamp: float) -> list[WindZone]:
+    def active_wind_zones_at_timestamp(self, timestamp: float) -> list[WindZone]:
         return [
             wind_zone
             for wind_zone in self.wind_zones.values()
             if wind_zone.is_active_at(timestamp)
         ]
 
-    def wind_zones_at(self, position, timestamp: float) -> list[WindZone]:
+    def wind_zones_affecting_position(self, position: list[float], timestamp: float) -> list[WindZone]:
+        """
+            Returns the list of active wind zones at a given timestamp that contain 
+            a given position.
+        """
         return [
             wind_zone
-            for wind_zone in self.active_wind_zones_at(timestamp)
+            for wind_zone in self.active_wind_zones_at_timestamp(timestamp)
             if wind_zone.geometry.contains(position)
         ]
 
-    def wind_at(self, position, timestamp: float) -> list[float]:
-        wind_zones = self.wind_zones_at(position, timestamp)
+    def wind_at(self, position: list[float], timestamp: float) -> list[float]:
+        """
+            Returns the resulting wind velocity vector at a given position and at a given timestamp.
+        """
+        wind_zones = self.wind_zones_affecting_position(position, timestamp)
         return [
             sum(wind_zone.velocity[axis] for wind_zone in wind_zones)
             for axis in range(3)
         ]
 
-    def prohibited_regions_at(
-        self,
-        position,
-        timestamp,
-    ) -> list[Obstacle | Geofence]:
+    def prohibited_regions_at(self, position: list[float], timestamp: float) -> list[Obstacle | Geofence]:
         containing_obstacles = [
             obstacle
             for obstacle in self.obstacles.values()
@@ -100,11 +106,7 @@ class Airspace:
             if geofence.geometry.contains(position)
         ]
 
-        return [*containing_obstacles, *containing_geofences]
-
-    def is_prohibited(
-        self,
-        position,
-        timestamp,
-    ) -> bool:
+        return containing_obstacles + containing_geofences
+    
+    def is_prohibited(self, position: list[float], timestamp: float) -> bool:
         return bool(self.prohibited_regions_at(position, timestamp))
