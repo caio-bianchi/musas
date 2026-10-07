@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from utm_simulator.simulation.result import SimulationResult
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 @dataclass(frozen=True)
@@ -52,6 +52,7 @@ class AirspaceObjectRecord:
 class AirspaceSnapshotRecord:
     timestamp: float
     geofence_ids: tuple[str, ...]
+    wind_zone_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -192,7 +193,8 @@ class _DatasetSchema:
 
             CREATE TABLE airspace_snapshots (
                 timestamp REAL PRIMARY KEY,
-                geofence_ids_json TEXT NOT NULL
+                geofence_ids_json TEXT NOT NULL,
+                wind_zone_ids_json TEXT NOT NULL
             );
 
             CREATE TABLE tracking_reports (
@@ -500,13 +502,24 @@ class SimulationDatasetRecorder:
     def _write_airspace(self, result: SimulationResult) -> None:
         geofences = {
             geofence.geofence_id: geofence
-            for _, snapshot in result.airspace_history
-            for geofence in snapshot
+            for snapshot in result.airspace_history
+            for geofence in snapshot.geofences
         }
         geofences.update(
             {
                 geofence.geofence_id: geofence
                 for geofence in result.airspace.geofences
+            }
+        )
+        wind_zones = {
+            wind_zone.wind_id: wind_zone
+            for snapshot in result.airspace_history
+            for wind_zone in snapshot.wind_zones
+        }
+        wind_zones.update(
+            {
+                wind_zone.wind_id: wind_zone
+                for wind_zone in result.airspace.wind_zones
             }
         )
         objects = [
@@ -543,7 +556,7 @@ class SimulationDatasetRecorder:
                 item.active_until,
                 {"velocity": list(item.velocity)},
             )
-            for item in result.airspace.wind_zones
+            for item in wind_zones.values()
         )
 
         object_rows = []
@@ -587,19 +600,25 @@ class SimulationDatasetRecorder:
         )
         self._connection.executemany(
             """
-            INSERT INTO airspace_snapshots(timestamp, geofence_ids_json)
-            VALUES (?, ?)
+            INSERT INTO airspace_snapshots(
+                timestamp, geofence_ids_json, wind_zone_ids_json
+            )
+            VALUES (?, ?, ?)
             ON CONFLICT(timestamp) DO UPDATE SET
-                geofence_ids_json = excluded.geofence_ids_json
+                geofence_ids_json = excluded.geofence_ids_json,
+                wind_zone_ids_json = excluded.wind_zone_ids_json
             """,
             [
                 (
-                    timestamp,
+                    snapshot.timestamp,
                     _json_dumps(
-                        [item.geofence_id for item in snapshot]
+                        [item.geofence_id for item in snapshot.geofences]
+                    ),
+                    _json_dumps(
+                        [item.wind_id for item in snapshot.wind_zones]
                     ),
                 )
-                for timestamp, snapshot in result.airspace_history[
+                for snapshot in result.airspace_history[
                     self._airspace_history_length:
                 ]
             ],
@@ -708,7 +727,8 @@ class SimulationDataset:
             uri=True,
         )
         self._connection.row_factory = sqlite3.Row
-        if self.metadata.get("schema_version") != SCHEMA_VERSION:
+        self.schema_version = self.metadata.get("schema_version")
+        if self.schema_version not in (1, SCHEMA_VERSION):
             self.close()
             raise ValueError(
                 "unsupported simulation dataset schema version"
@@ -1005,10 +1025,60 @@ class SimulationDataset:
             return ()
         return tuple(json.loads(row["geofence_ids_json"]))
 
+    def get_active_wind_zone_ids(self, timestamp: float) -> tuple[str, ...]:
+        if self.schema_version == 1:
+            return tuple(
+                item.object_id
+                for item in self.get_airspace_objects("wind_zone")
+                if (
+                    item.active_from is None
+                    or item.active_from <= timestamp
+                )
+                and (
+                    item.active_until is None
+                    or timestamp <= item.active_until
+                )
+            )
+        row = self._connection.execute(
+            """
+            SELECT wind_zone_ids_json
+            FROM airspace_snapshots
+            WHERE timestamp <= ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+            """,
+            (float(timestamp),),
+        ).fetchone()
+        if row is None:
+            return ()
+        return tuple(json.loads(row["wind_zone_ids_json"]))
+
     def get_airspace_snapshots(self) -> list[AirspaceSnapshotRecord]:
+        if self.schema_version == 1:
+            rows = list(
+                self._connection.execute(
+                    """
+                    SELECT timestamp, geofence_ids_json
+                    FROM airspace_snapshots
+                    ORDER BY timestamp
+                    """
+                )
+            )
+            return [
+                AirspaceSnapshotRecord(
+                    timestamp=row["timestamp"],
+                    geofence_ids=tuple(
+                        json.loads(row["geofence_ids_json"])
+                    ),
+                    wind_zone_ids=self.get_active_wind_zone_ids(
+                        row["timestamp"]
+                    ),
+                )
+                for row in rows
+            ]
         rows = self._connection.execute(
             """
-            SELECT timestamp, geofence_ids_json
+            SELECT timestamp, geofence_ids_json, wind_zone_ids_json
             FROM airspace_snapshots
             ORDER BY timestamp
             """
@@ -1018,6 +1088,9 @@ class SimulationDataset:
                 timestamp=row["timestamp"],
                 geofence_ids=tuple(
                     json.loads(row["geofence_ids_json"])
+                ),
+                wind_zone_ids=tuple(
+                    json.loads(row["wind_zone_ids_json"])
                 ),
             )
             for row in rows

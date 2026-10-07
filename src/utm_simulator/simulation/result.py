@@ -4,6 +4,7 @@ from typing import Any
 
 from utm_simulator.airspace.airspace import Airspace
 from utm_simulator.airspace.restrictions import Geofence
+from utm_simulator.airspace.wind import WindZone
 from utm_simulator.core.simulation_event import SimulationEvent
 from utm_simulator.domain.flight import FlightPlan
 from utm_simulator.domain.tracking import TrackPrediction, TrackingReport
@@ -33,6 +34,15 @@ class UAVStateSample:
     status: UAVStatus
 
 
+@dataclass(frozen=True)
+class AirspaceSnapshot:
+    """Geofences and wind zones present at one simulation instant."""
+
+    timestamp: float
+    geofences: tuple[Geofence, ...]
+    wind_zones: tuple[WindZone, ...]
+
+
 @dataclass
 class SimulationResult:
     """Data collected up to the current simulation time."""
@@ -43,7 +53,7 @@ class SimulationResult:
     proposed_flight_plans: dict[str, FlightPlan]
     flight_plan_history: dict[str, tuple[FlightPlan, ...]]
     state_history: dict[str, list[UAVStateSample]]
-    airspace_history: list[tuple[float, tuple[Geofence, ...]]]
+    airspace_history: list[AirspaceSnapshot]
     tracking_reports: list[TrackingReport]
     tracking_predictions: list[TrackPrediction]
     event_history: list[SimulationEvent]

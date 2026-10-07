@@ -373,6 +373,10 @@ def _draw_airspace(axis, data, config, timestamp: float) -> None:
         data.airspace_snapshots,
         timestamp,
     )
+    active_wind_zones = _active_wind_zone_ids(
+        data.airspace_snapshots,
+        timestamp,
+    )
     if not data.airspace_snapshots:
         active_geofences = {
             item.object_id
@@ -380,16 +384,30 @@ def _draw_airspace(axis, data, config, timestamp: float) -> None:
             if item.object_type == "geofence"
             and _object_is_active(item, timestamp)
         }
+        active_wind_zones = {
+            item.object_id
+            for item in data.airspace_objects
+            if item.object_type == "wind_zone"
+            and _object_is_active(item, timestamp)
+        }
     for item in data.airspace_objects:
         if item.object_type == "geofence":
-            if not config.show_geofences or item.object_id not in active_geofences:
+            if (
+                not config.show_geofences
+                or item.object_id not in active_geofences
+                or not _object_is_active(item, timestamp)
+            ):
                 continue
             _draw_region(axis, config.view, item, "crimson", 0.20)
         elif item.object_type == "obstacle":
             if config.show_obstacles:
                 _draw_region(axis, config.view, item, "dimgray", 0.28)
         elif item.object_type == "wind_zone":
-            if config.show_wind_zones and _object_is_active(item, timestamp):
+            if (
+                config.show_wind_zones
+                and item.object_id in active_wind_zones
+                and _object_is_active(item, timestamp)
+            ):
                 _draw_region(axis, config.view, item, "deepskyblue", 0.16)
                 _draw_wind_vector(axis, config.view, item)
 
@@ -403,6 +421,17 @@ def _active_geofence_ids(
     times = [snapshot.timestamp for snapshot in snapshots]
     index = bisect_right(times, timestamp) - 1
     return set() if index < 0 else set(snapshots[index].geofence_ids)
+
+
+def _active_wind_zone_ids(
+    snapshots: list[AirspaceSnapshotRecord],
+    timestamp: float,
+) -> set[str]:
+    if not snapshots:
+        return set()
+    times = [snapshot.timestamp for snapshot in snapshots]
+    index = bisect_right(times, timestamp) - 1
+    return set() if index < 0 else set(snapshots[index].wind_zone_ids)
 
 
 def _object_is_active(item: AirspaceObjectRecord, timestamp: float) -> bool:
@@ -611,6 +640,17 @@ def _configure_axis(axis, data, config, timestamp) -> None:
                 if item.object_type == "geofence"
                 and _object_is_active(item, timestamp)
             }
+        active_wind_zones = _active_wind_zone_ids(
+            data.airspace_snapshots,
+            timestamp,
+        )
+        if not data.airspace_snapshots:
+            active_wind_zones = {
+                item.object_id
+                for item in data.airspace_objects
+                if item.object_type == "wind_zone"
+                and _object_is_active(item, timestamp)
+            }
         if config.show_geofences and active_geofences:
             unique["Geofence"] = Patch(color="crimson", alpha=0.35)
         if config.show_obstacles and any(
@@ -620,6 +660,7 @@ def _configure_axis(axis, data, config, timestamp) -> None:
             unique["Obstáculo"] = Patch(color="dimgray", alpha=0.45)
         if config.show_wind_zones and any(
             item.object_type == "wind_zone"
+            and item.object_id in active_wind_zones
             and _object_is_active(item, timestamp)
             for item in data.airspace_objects
         ):

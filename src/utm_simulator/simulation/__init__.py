@@ -4,6 +4,7 @@ from utm_simulator.simulation.dataset import (
     SimulationDatasetRecorder,
 )
 from utm_simulator.simulation.result import (
+    AirspaceSnapshot,
     SimulationResult,
     UAVSnapshot,
     UAVStateSample,
@@ -16,6 +17,7 @@ from utm_simulator.simulation.visualization import (
 )
 
 __all__ = [
+    "AirspaceSnapshot",
     "ProcessingMode",
     "ProcessingTime",
     "Simulation",

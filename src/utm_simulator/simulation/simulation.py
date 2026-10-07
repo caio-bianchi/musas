@@ -5,6 +5,7 @@ import simpy
 
 from utm_simulator.airspace.airspace import Airspace
 from utm_simulator.airspace.restrictions import Geofence
+from utm_simulator.airspace.wind import WindZone
 from utm_simulator.algorithms.interfaces.conflict_prediction import (
     ConflictPredictionAlgorithm,
 )
@@ -39,6 +40,7 @@ from utm_simulator.utm.tactical_deconfliction_module import (
 from utm_simulator.utm.tracking_module import TrackingModule
 
 from utm_simulator.simulation.result import (
+    AirspaceSnapshot,
     SimulationResult,
     UAVSnapshot,
     UAVStateSample,
@@ -340,20 +342,20 @@ class Simulation:
         self.proposed_flight_plans: dict[str, FlightPlan] = {}
         self.submission_times: dict[str, float] = {}
         self.state_history: dict[str, list[UAVStateSample]] = {}
-        self.airspace_history: list[
-            tuple[float, tuple[Geofence, ...]]
-        ] = []
+        self.airspace_history: list[AirspaceSnapshot] = []
         self.tracking_predictions: list[TrackPrediction] = []
         self.tracking_reports: list[TrackingReport] = []
         self._scheduled_geofences: list[
             tuple[Geofence, float, float | None]
+        ] = []
+        self._scheduled_wind_zones: list[
+            tuple[WindZone, float, float | None]
         ] = []
         self._started = False
         self._closed = False
         self._dataset_writer: (
             SimulationDatasetRecorder | None
         ) = None
-        self.airspace.add_change_observer(self._record_airspace_change)
 
     def add_uav(
         self,
@@ -412,6 +414,48 @@ class Simulation:
         self.state_history[name] = []
         return uav
 
+    def add_geofence(self, geofence: Geofence) -> None:
+        """Add a geofence and record the dynamic airspace change."""
+        self.airspace.add_geofence(geofence)
+        self._record_airspace_snapshot()
+        self.network.record_event(
+            component="Airspace",
+            event="GEOFENCE_ACTIVATED",
+            geofence=geofence.geofence_id,
+        )
+
+    def remove_geofence(self, geofence_id: str) -> Geofence:
+        """Remove a geofence and record the dynamic airspace change."""
+        removed = self.airspace.remove_geofence(geofence_id)
+        self._record_airspace_snapshot()
+        self.network.record_event(
+            component="Airspace",
+            event="GEOFENCE_REMOVED",
+            geofence=geofence_id,
+        )
+        return removed
+
+    def add_wind_zone(self, wind_zone: WindZone) -> None:
+        """Add a wind zone and record the dynamic airspace change."""
+        self.airspace.add_wind_zone(wind_zone)
+        self._record_airspace_snapshot()
+        self.network.record_event(
+            component="Airspace",
+            event="WIND_ZONE_ACTIVATED",
+            wind_zone=wind_zone.wind_id,
+        )
+
+    def remove_wind_zone(self, wind_id: str) -> WindZone:
+        """Remove a wind zone and record the dynamic airspace change."""
+        removed = self.airspace.remove_wind_zone(wind_id)
+        self._record_airspace_snapshot()
+        self.network.record_event(
+            component="Airspace",
+            event="WIND_ZONE_REMOVED",
+            wind_zone=wind_id,
+        )
+        return removed
+
     def schedule_geofence(
         self,
         geofence: Geofence,
@@ -453,6 +497,47 @@ class Simulation:
             )
         )
 
+    def schedule_wind_zone(
+        self,
+        wind_zone: WindZone,
+        activation_time: float,
+        removal_time: float | None = None,
+    ) -> None:
+        """Add and optionally remove a wind zone at simulation times."""
+        if self._started:
+            raise RuntimeError(
+                "wind zones must be scheduled before the simulation starts"
+            )
+        if activation_time < 0:
+            raise ValueError("activation_time cannot be negative")
+        if removal_time is not None and removal_time < activation_time:
+            raise ValueError(
+                "removal_time cannot be earlier than activation_time"
+            )
+        existing_ids = {
+            scheduled.wind_id
+            for scheduled, _, _ in self._scheduled_wind_zones
+        }
+        existing_ids.update(
+            existing.wind_id
+            for existing in self.airspace.wind_zones
+        )
+        if wind_zone.wind_id in existing_ids:
+            raise ValueError(
+                f"Wind zone {wind_zone.wind_id!r} is already configured"
+            )
+        self._scheduled_wind_zones.append(
+            (
+                wind_zone,
+                float(activation_time),
+                (
+                    None
+                    if removal_time is None
+                    else float(removal_time)
+                ),
+            )
+        )
+
     def run(self, until: float) -> SimulationResult:
         """Run or continue the simulation up to an absolute time."""
         if self._closed:
@@ -477,9 +562,6 @@ class Simulation:
                     pass
                 finally:
                     self._dataset_writer.close()
-            self.airspace.remove_change_observer(
-                self._record_airspace_change
-            )
             self._closed = True
             raise
 
@@ -502,9 +584,6 @@ class Simulation:
                 finally:
                     self._dataset_writer.close()
         finally:
-            self.airspace.remove_change_observer(
-                self._record_airspace_change
-            )
             self._closed = True
 
     def result(self) -> SimulationResult:
@@ -600,7 +679,7 @@ class Simulation:
                 )
             )
 
-        self._record_airspace_change()
+        self._record_airspace_snapshot()
         self.env.process(self._record_states())
         if self._dataset_writer is not None:
             self.env.process(self._record_dataset())
@@ -611,6 +690,16 @@ class Simulation:
             self.env.process(
                 self._manage_geofence(
                     geofence,
+                    activation_time,
+                    removal_time,
+                )
+            )
+        for wind_zone, activation_time, removal_time in (
+            self._scheduled_wind_zones
+        ):
+            self.env.process(
+                self._manage_wind_zone(
+                    wind_zone,
                     activation_time,
                     removal_time,
                 )
@@ -634,22 +723,27 @@ class Simulation:
     ):
         if activation_time > self.env.now:
             yield self.env.timeout(activation_time - self.env.now)
-        self.airspace.add_geofence(geofence)
-        self.network.record_event(
-            component="Airspace",
-            event="GEOFENCE_ACTIVATED",
-            geofence=geofence.geofence_id,
-        )
+        self.add_geofence(geofence)
 
         if removal_time is not None:
             if removal_time > self.env.now:
                 yield self.env.timeout(removal_time - self.env.now)
-            self.airspace.remove_geofence(geofence.geofence_id)
-            self.network.record_event(
-                component="Airspace",
-                event="GEOFENCE_REMOVED",
-                geofence=geofence.geofence_id,
-            )
+            self.remove_geofence(geofence.geofence_id)
+
+    def _manage_wind_zone(
+        self,
+        wind_zone: WindZone,
+        activation_time: float,
+        removal_time: float | None,
+    ):
+        if activation_time > self.env.now:
+            yield self.env.timeout(activation_time - self.env.now)
+        self.add_wind_zone(wind_zone)
+
+        if removal_time is not None:
+            if removal_time > self.env.now:
+                yield self.env.timeout(removal_time - self.env.now)
+            self.remove_wind_zone(wind_zone.wind_id)
 
     def _record_states(self):
         while True:
@@ -664,14 +758,15 @@ class Simulation:
                 )
             yield self.env.timeout(self.trajectory_record_interval)
 
-    def _record_airspace_change(self) -> None:
-        snapshot = (
-            float(self.env.now),
-            tuple(self.airspace.geofences),
+    def _record_airspace_snapshot(self) -> None:
+        snapshot = AirspaceSnapshot(
+            timestamp=float(self.env.now),
+            geofences=tuple(self.airspace.geofences),
+            wind_zones=tuple(self.airspace.wind_zones),
         )
         if (
             self.airspace_history
-            and self.airspace_history[-1][0] == snapshot[0]
+            and self.airspace_history[-1].timestamp == snapshot.timestamp
         ):
             self.airspace_history[-1] = snapshot
         else:

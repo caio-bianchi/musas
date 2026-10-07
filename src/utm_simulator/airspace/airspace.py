@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from utm_simulator.airspace.restrictions import Geofence, Obstacle
@@ -12,28 +11,9 @@ class Airspace:
     obstacles: list[Obstacle]
     geofences: list[Geofence]
     wind_zones: list[WindZone] = field(default_factory=list)
-    _change_observers: list[Callable[[], None]] = field(
-        default_factory=list,
-        init=False,
-        repr=False,
-        compare=False,
-    )
-
-    def add_change_observer(self, observer: Callable[[], None]) -> None:
-        if observer not in self._change_observers:
-            self._change_observers.append(observer)
-
-    def remove_change_observer(self, observer: Callable[[], None]) -> None:
-        if observer in self._change_observers:
-            self._change_observers.remove(observer)
-
-    def _notify_change(self) -> None:
-        for observer in tuple(self._change_observers):
-            observer()
 
     def add_obstacle(self, obstacle: Obstacle) -> None:
         self.obstacles.append(obstacle)
-        self._notify_change()
 
     def add_geofence(self, geofence: Geofence) -> None:
         if any(
@@ -45,14 +25,11 @@ class Airspace:
             )
 
         self.geofences.append(geofence)
-        self._notify_change()
 
     def remove_geofence(self, geofence_id: str) -> Geofence:
         for index, geofence in enumerate(self.geofences):
             if geofence.geofence_id == geofence_id:
-                removed = self.geofences.pop(index)
-                self._notify_change()
-                return removed
+                return self.geofences.pop(index)
 
         raise KeyError(f"Geofence {geofence_id!r} does not exist")
 
@@ -72,14 +49,11 @@ class Airspace:
                 f"Wind zone {wind_zone.wind_id!r} already exists"
             )
         self.wind_zones.append(wind_zone)
-        self._notify_change()
 
     def remove_wind_zone(self, wind_id: str) -> WindZone:
         for index, wind_zone in enumerate(self.wind_zones):
             if wind_zone.wind_id == wind_id:
-                removed = self.wind_zones.pop(index)
-                self._notify_change()
-                return removed
+                return self.wind_zones.pop(index)
         raise KeyError(f"Wind zone {wind_id!r} does not exist")
 
     def active_wind_zones_at(self, timestamp: float) -> list[WindZone]:
