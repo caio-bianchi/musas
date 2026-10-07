@@ -49,10 +49,7 @@ class UAVGuidance:
             )
         )
 
-    def _advance_reached_waypoints(
-        self,
-        current_position,
-    ):
+    def _advance_reached_waypoints(self, current_position,):
         while not self.completed:
             target_waypoint = (
                 self.flight_plan.waypoint_list[
@@ -60,19 +57,11 @@ class UAVGuidance:
                 ]
             )
 
-            displacement = subtract(
-                target_waypoint.position(),
-                current_position,
-            )
+            displacement = subtract(target_waypoint.position(),current_position)
 
-            remaining_distance = norm(
-                displacement
-            )
+            remaining_distance = norm(displacement)
 
-            if (
-                remaining_distance
-                > self.waypoint_acceptance_radius
-            ):
+            if remaining_distance > self.waypoint_acceptance_radius:
                 return
 
             self.target_waypoint_index += 1
@@ -87,12 +76,7 @@ class UAVGuidance:
 
     @property
     def target_waypoint(self):
-        if (
-            self.flight_plan is None
-            or self.completed
-        ):
+        if self.flight_plan is None or self.completed:
             return None
 
-        return self.flight_plan.waypoint_list[
-            self.target_waypoint_index
-        ]
+        return self.flight_plan.waypoint_list[self.target_waypoint_index]

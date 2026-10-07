@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 
-from utm_simulator.algorithms.interfaces.processing_time import (
-    ProcessingTimeModel,
-)
+from utm_simulator.algorithms.interfaces.processing_time import ProcessingTimeModel
 
 
 @dataclass(frozen=True)

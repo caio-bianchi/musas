@@ -1,13 +1,13 @@
 from dataclasses import dataclass
-
+from typing import Sequence
 
 @dataclass
 class TrackingReport:
     """State reported by a UAV and its communication timestamps."""
 
     uav_name: str
-    position: list[float]
-    velocity: list[float]
+    position: Sequence[float]
+    velocity: Sequence[float]
     timestamp: float
     received_at: float
 
@@ -16,8 +16,8 @@ class TrackingReport:
 class PredictedState:
     """Estimated UAV state at a particular future instant."""
 
-    position: list[float]
-    velocity: list[float]
+    position: Sequence[float]
+    velocity: Sequence[float]
     timestamp: float
 
 
@@ -27,5 +27,5 @@ class TrackPrediction:
 
     uav_name: str
     estimated_state: PredictedState
-    predicted_states: tuple[PredictedState, ...]
+    predicted_states: Sequence[PredictedState]
     generated_at: float

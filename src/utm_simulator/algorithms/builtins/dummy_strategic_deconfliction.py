@@ -1,10 +1,6 @@
 from utm_simulator.airspace.airspace import Airspace
-from utm_simulator.algorithms.interfaces.conflict_prediction import (
-    ConflictPredictionAlgorithm,
-)
-from utm_simulator.algorithms.interfaces.strategic_deconfliction import (
-    StrategicDeconflictionAlgorithm,
-)
+from utm_simulator.algorithms.interfaces.conflict_prediction import ConflictPredictionAlgorithm
+from utm_simulator.algorithms.interfaces.strategic_deconfliction import StrategicDeconflictionAlgorithm
 from utm_simulator.domain.flight import Conflict, FlightPlan, FlightPlanUpdate
 from utm_simulator.domain.message_types import StrategicDecision
 

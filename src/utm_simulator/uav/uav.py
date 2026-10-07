@@ -2,6 +2,7 @@ from typing import Callable
 
 import simpy
 from enum import Enum
+from typing import Sequence
 
 from utm_simulator.algorithms.builtins.perfect_sensor import PerfectSensor
 from utm_simulator.algorithms.interfaces.dynamics import DynamicsAlgorithm
@@ -13,9 +14,7 @@ from utm_simulator.domain.flight import FlightPlan
 from utm_simulator.domain.message_types import MessageType, StrategicDecision
 from utm_simulator.uav.uav_dynamics import UAVDynamics
 from utm_simulator.uav.uav_guidance import UAVGuidance
-from utm_simulator.utm.strategic_deconfliction import (
-    StrategicDeconflictionModule,
-)
+from utm_simulator.utm.strategic_deconfliction import StrategicDeconflictionModule
 from utm_simulator.utm.tracking_module import TrackingModule
 
 
@@ -38,14 +37,12 @@ class UAV:
         name: str,
         env: simpy.Environment,
         network: CommunicationNetwork,
-        position: list[float],
+        position: Sequence[float],
         dynamics_algorithm: DynamicsAlgorithm,
         guidance_algorithm: GuidanceAlgorithm,
         strategic_deconfliction_module: StrategicDeconflictionModule,
         waypoint_acceptance_radius: float = 1.0,
-        environmental_velocity_provider: (
-            Callable | None
-        ) = None,
+        environmental_velocity_provider: (Callable | None) = None, # inject method that provides wind(pos,time)
         sensor_model: SensorModel | None = None,
     ) -> None:
         self.name = name
@@ -63,9 +60,7 @@ class UAV:
             waypoint_acceptance_radius=waypoint_acceptance_radius,
         )
 
-        self.strategic_deconfliction_module = (
-            strategic_deconfliction_module
-        )
+        self.strategic_deconfliction_module = strategic_deconfliction_module
 
         self.sensor_model = (
             PerfectSensor()
@@ -83,7 +78,7 @@ class UAV:
     def send_periodic_reports(
         self,
         tracking_module: TrackingModule,
-        update_interval: float,
+        report_interval: float,
     ):
         while self.status != UAVStatus.COMPLETED:
             measurement = self.sensor_model.measure(
@@ -101,17 +96,10 @@ class UAV:
 
             self.network.send(message)
 
-            yield self.env.timeout(update_interval)
+            yield self.env.timeout(report_interval)
 
-    def send_flight_plan(
-        self,
-        flight_plan: FlightPlan,
-    ) -> None:
-        if self.status == UAVStatus.ACTIVE:
-            raise RuntimeError(
-                "an active flight plan cannot be replaced through "
-                "strategic deconfliction"
-            )
+    def send_flight_plan(self,flight_plan: FlightPlan) -> None:
+
         proposal = Message(
             source=self.name,
             destination=self.strategic_deconfliction_module.name,
@@ -150,16 +138,11 @@ class UAV:
         if message.message_type == MessageType.UPDATE_FLIGHT_PLAN:
             self._handle_update_flight_plan(message)
 
-    def _handle_SD_response(
-        self,
-        message: Message,
-    ) -> None:
+    def _handle_SD_response(self, message: Message) -> None:
         decision = message.payload["decision"]
 
         if decision == StrategicDecision.APPROVE:
-            pending = self.pending_proposals.get(
-                message.in_reply_to
-            )
+            pending = self.pending_proposals.get(message.in_reply_to)
             flight_plan = pending["flight_plan"]
 
             self.load_flight_plan(
@@ -182,15 +165,9 @@ class UAV:
             decision=decision.value,
         )
 
-        self.pending_proposals.pop(
-            message.in_reply_to,
-            None,
-        )
+        self.pending_proposals.pop(message.in_reply_to, None)
 
-    def _handle_update_flight_plan(
-        self,
-        message: Message,
-    ) -> None:
+    def _handle_update_flight_plan(self, message: Message) -> None:
         if self.status == UAVStatus.COMPLETED:
             self.network.record_event(
                 component=self.name,
@@ -282,11 +259,12 @@ class UAV:
                 )
 
                 if self.guidance.completed:
-                    self._complete_flight_plan()
+                    self.status = UAVStatus.COMPLETED
+                    self._notify_completion()
 
             yield self.env.timeout(update_interval)
 
-    def _complete_flight_plan(self) -> None:
+    def _notify_completion(self) -> None:
         self.status = UAVStatus.COMPLETED
         self.network.record_event(
             component=self.name,

@@ -41,7 +41,7 @@ class UAVDynamics:
             environmental_velocity = list(
                 self.environmental_velocity_provider(
                     self.position,
-                    current_time,
+                    current_time
                 )
             )
 
