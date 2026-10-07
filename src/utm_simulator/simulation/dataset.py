@@ -508,7 +508,7 @@ class SimulationDatasetRecorder:
         geofences.update(
             {
                 geofence.geofence_id: geofence
-                for geofence in result.airspace.geofences
+                for geofence in result.airspace.geofences.values()
             }
         )
         wind_zones = {
@@ -519,7 +519,7 @@ class SimulationDatasetRecorder:
         wind_zones.update(
             {
                 wind_zone.wind_id: wind_zone
-                for wind_zone in result.airspace.wind_zones
+                for wind_zone in result.airspace.wind_zones.values()
             }
         )
         objects = [
@@ -544,7 +544,7 @@ class SimulationDatasetRecorder:
                 None,
                 {},
             )
-            for item in result.airspace.obstacles
+            for item in result.airspace.obstacles.values()
         )
         objects.extend(
             (

@@ -42,13 +42,14 @@ class FlightPlanManager:
 
     def get_airspace_snapshot(self) -> Airspace:
         return Airspace(
-            obstacles=list(self.airspace.obstacles),
-            geofences=list(
-                self.airspace.active_geofences_at(self.env.now)
-            ),
+            obstacles=dict(self.airspace.obstacles),
+            geofences={
+                geofence.geofence_id: geofence
+                for geofence in self.airspace.active_geofences_at(self.env.now)
+            },
             # Environmental disturbances are intentionally not exposed to
             # strategic algorithms through the operational snapshot.
-            wind_zones=[],
+            wind_zones={},
         )
 
     def approve(self, uav_name: str, flight_plan: FlightPlan) -> int:

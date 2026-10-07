@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from dataclasses import dataclass, field
 
 from utm_simulator.airspace.restrictions import Geofence, Obstacle
@@ -8,58 +6,67 @@ from utm_simulator.airspace.wind import WindZone
 
 @dataclass
 class Airspace:
-    obstacles: list[Obstacle]
-    geofences: list[Geofence]
-    wind_zones: list[WindZone] = field(default_factory=list)
+    obstacles: dict[str, Obstacle]
+    geofences: dict[str, Geofence]
+    wind_zones: dict[str, WindZone] = field(default_factory=dict)
 
     def add_obstacle(self, obstacle: Obstacle) -> None:
-        self.obstacles.append(obstacle)
+        if obstacle.obstacle_id in self.obstacles:
+            raise ValueError(
+                f"Obstacle {obstacle.obstacle_id!r} already exists"
+            )
+        self.obstacles[obstacle.obstacle_id] = obstacle
+
+    def remove_obstacle(self, obstacle_id: str) -> Obstacle:
+        try:
+            return self.obstacles.pop(obstacle_id)
+        except KeyError:
+            raise KeyError(
+                f"Obstacle {obstacle_id!r} does not exist"
+            ) from None
 
     def add_geofence(self, geofence: Geofence) -> None:
-        if any(
-            existing.geofence_id == geofence.geofence_id
-            for existing in self.geofences
-        ):
+        if geofence.geofence_id in self.geofences:
             raise ValueError(
                 f"Geofence {geofence.geofence_id!r} already exists"
             )
 
-        self.geofences.append(geofence)
+        self.geofences[geofence.geofence_id] = geofence
 
     def remove_geofence(self, geofence_id: str) -> Geofence:
-        for index, geofence in enumerate(self.geofences):
-            if geofence.geofence_id == geofence_id:
-                return self.geofences.pop(index)
-
-        raise KeyError(f"Geofence {geofence_id!r} does not exist")
+        try:
+            return self.geofences.pop(geofence_id)
+        except KeyError:
+            raise KeyError(
+                f"Geofence {geofence_id!r} does not exist"
+            ) from None
 
     def active_geofences_at(self, timestamp: float) -> list[Geofence]:
         return [
             geofence
-            for geofence in self.geofences
+            for geofence in self.geofences.values()
             if geofence.is_active_at(timestamp)
         ]
 
     def add_wind_zone(self, wind_zone: WindZone) -> None:
-        if any(
-            existing.wind_id == wind_zone.wind_id
-            for existing in self.wind_zones
-        ):
+        if wind_zone.wind_id in self.wind_zones:
             raise ValueError(
                 f"Wind zone {wind_zone.wind_id!r} already exists"
             )
-        self.wind_zones.append(wind_zone)
+        self.wind_zones[wind_zone.wind_id] = wind_zone
 
     def remove_wind_zone(self, wind_id: str) -> WindZone:
-        for index, wind_zone in enumerate(self.wind_zones):
-            if wind_zone.wind_id == wind_id:
-                return self.wind_zones.pop(index)
-        raise KeyError(f"Wind zone {wind_id!r} does not exist")
+        try:
+            return self.wind_zones.pop(wind_id)
+        except KeyError:
+            raise KeyError(
+                f"Wind zone {wind_id!r} does not exist"
+            ) from None
 
     def active_wind_zones_at(self, timestamp: float) -> list[WindZone]:
         return [
             wind_zone
-            for wind_zone in self.wind_zones
+            for wind_zone in self.wind_zones.values()
             if wind_zone.is_active_at(timestamp)
         ]
 
@@ -84,7 +91,7 @@ class Airspace:
     ) -> list[Obstacle | Geofence]:
         containing_obstacles = [
             obstacle
-            for obstacle in self.obstacles
+            for obstacle in self.obstacles.values()
             if obstacle.contains(position)
         ]
         containing_geofences = [

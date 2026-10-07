@@ -477,10 +477,7 @@ class Simulation:
             scheduled.geofence_id
             for scheduled, _, _ in self._scheduled_geofences
         }
-        existing_ids.update(
-            existing.geofence_id
-            for existing in self.airspace.geofences
-        )
+        existing_ids.update(self.airspace.geofences)
         if geofence.geofence_id in existing_ids:
             raise ValueError(
                 f"Geofence {geofence.geofence_id!r} is already configured"
@@ -518,10 +515,7 @@ class Simulation:
             scheduled.wind_id
             for scheduled, _, _ in self._scheduled_wind_zones
         }
-        existing_ids.update(
-            existing.wind_id
-            for existing in self.airspace.wind_zones
-        )
+        existing_ids.update(self.airspace.wind_zones)
         if wind_zone.wind_id in existing_ids:
             raise ValueError(
                 f"Wind zone {wind_zone.wind_id!r} is already configured"
@@ -619,9 +613,9 @@ class Simulation:
         return SimulationResult(
             time=float(self.env.now),
             airspace=Airspace(
-                obstacles=list(self.airspace.obstacles),
-                geofences=list(self.airspace.geofences),
-                wind_zones=list(self.airspace.wind_zones),
+                obstacles=dict(self.airspace.obstacles),
+                geofences=dict(self.airspace.geofences),
+                wind_zones=dict(self.airspace.wind_zones),
             ),
             uavs=uav_snapshots,
             proposed_flight_plans=self.proposed_flight_plans.copy(),
@@ -761,8 +755,8 @@ class Simulation:
     def _record_airspace_snapshot(self) -> None:
         snapshot = AirspaceSnapshot(
             timestamp=float(self.env.now),
-            geofences=tuple(self.airspace.geofences),
-            wind_zones=tuple(self.airspace.wind_zones),
+            geofences=tuple(self.airspace.geofences.values()),
+            wind_zones=tuple(self.airspace.wind_zones.values()),
         )
         if (
             self.airspace_history
