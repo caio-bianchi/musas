@@ -1,0 +1,31 @@
+from abc import ABC, abstractmethod
+from typing import Sequence
+
+from musas.domain.flight import FlightPlan
+from musas.domain.tracking import TrackPrediction, TrackingReport
+
+
+class TrackingAlgorithm(ABC):
+    """
+    Contract for tracking algorithms.
+
+    Any compatible algorithm must implement the predict() method.
+    """
+
+    @abstractmethod
+    def predict(
+        self,
+        uav_name: str,
+        report_history: Sequence[TrackingReport],
+        flight_plan: FlightPlan,
+        prediction_start: float,
+        prediction_horizon: int,
+        prediction_step: float,
+    ) -> TrackPrediction:
+        """
+        Estimate the current UAV state and predict its future states.
+
+        prediction_horizon is the number of future time steps.
+        prediction_step is the duration of each time step.
+        """
+        ...

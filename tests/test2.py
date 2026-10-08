@@ -10,15 +10,15 @@ import argparse
 
 import matplotlib.pyplot as plt
 
-from utm_simulator.algorithms.builtins.first_order_dynamics import (
+from musas.algorithms.builtins.first_order_dynamics import (
     FirstOrderDynamics,
 )
-from utm_simulator.algorithms.builtins.waypoint_guidance import (
+from musas.algorithms.builtins.waypoint_guidance import (
     WaypointGuidance,
 )
-from utm_simulator.domain.flight import FlightPlan, Waypoint
-from utm_simulator.uav.uav_dynamics import UAVDynamics
-from utm_simulator.uav.uav_guidance import UAVGuidance
+from musas.domain.flight import FlightPlan, Waypoint
+from musas.uav.uav_dynamics import UAVDynamics
+from musas.uav.uav_guidance import UAVGuidance
 
 
 UPDATE_INTERVAL = 0.1
