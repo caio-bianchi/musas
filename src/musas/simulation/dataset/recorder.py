@@ -9,10 +9,7 @@ from typing import Any, TYPE_CHECKING
 
 from musas.domain.flight import FlightPlan
 from musas.simulation.dataset.schema import SCHEMA_SQL, SCHEMA_VERSION
-from musas.simulation.dataset.serialization import (
-    geometry_data,
-    json_dumps,
-)
+from musas.simulation.dataset.serialization import geometry_data, json_dumps
 
 if TYPE_CHECKING:
     from musas.simulation.result import SimulationResult
