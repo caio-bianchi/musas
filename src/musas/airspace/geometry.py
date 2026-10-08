@@ -9,6 +9,7 @@ from typing import Sequence
 class Geometry(ABC):
     """Spatial region that can test whether it contains a 3-D position."""
 
+    @abstractmethod
     def contains(self, position: Sequence[float]) -> bool:
         ...
 
@@ -22,7 +23,6 @@ class Box3D(Geometry):
     minimum_z: float
     maximum_z: float
 
-    @abstractmethod
     def contains(self, position: Sequence[float]) -> bool:
         x, y, z = position
         return (
@@ -40,7 +40,6 @@ class Cylinder3D(Geometry):
     minimum_z: float
     maximum_z: float
 
-    @abstractmethod
     def contains(self, position: Sequence[float]) -> bool:
         x, y, z = position
         horizontal_distance = hypot(x - self.center_x, y - self.center_y)

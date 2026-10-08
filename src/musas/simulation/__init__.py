@@ -14,6 +14,7 @@ from musas.simulation.result import (
     UAVSnapshot,
     UAVStateSample,
 )
+from musas.simulation.metrics import calculate_metrics
 from musas.simulation.simulation import Simulation
 from musas.simulation.visualization import (
     VisualizationConfig,
@@ -33,5 +34,6 @@ __all__ = [
     "UAVStateSample",
     "VisualizationConfig",
     "animate_dataset",
+    "calculate_metrics",
     "plot_dataset",
 ]
