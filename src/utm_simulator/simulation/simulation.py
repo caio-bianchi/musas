@@ -651,7 +651,7 @@ class Simulation:
                 self.env.process(
                     uav.send_periodic_reports(
                         tracking_module=self.tracking_module,
-                        update_interval=self.report_interval,
+                        report_interval=self.report_interval,
                     )
                 )
             self.env.process(
