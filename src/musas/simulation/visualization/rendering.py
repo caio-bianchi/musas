@@ -263,6 +263,20 @@ def _axis_limits(
     minimums = values.min(axis=0)
     maximums = values.max(axis=0)
     spans = maximums - minimums
+
+    # A planar or linear trajectory may have no variation along one of the
+    # axes. In a 3-D view, using that near-zero span directly collapses the
+    # corresponding axis and makes its tick labels overlap. Expand small axes
+    # around their data center while preserving the scale of the largest axis.
+    if config.view == "3d":
+        reference_span = max(float(spans.max()), 1.0)
+        minimum_span = 0.2 * reference_span
+        centers = (minimums + maximums) / 2.0
+        displayed_spans = np.maximum(spans, minimum_span)
+        minimums = centers - displayed_spans / 2.0
+        maximums = centers + displayed_spans / 2.0
+        spans = displayed_spans
+
     padding = np.maximum(spans * 0.06, 1.0)
     return tuple(
         (float(minimum - pad), float(maximum + pad))
