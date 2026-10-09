@@ -52,6 +52,12 @@ class SimulationDatasetRecorder:
                 f"simulation dataset already exists: {self.path}"
             )
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        if overwrite:
+            # An interrupted WAL-mode run may leave sidecar files behind.
+            # Reusing them with a newly replaced main database can replay stale
+            # transactions into the new dataset.
+            for suffix in ("-wal", "-shm"):
+                Path(f"{self.path}{suffix}").unlink(missing_ok=True)
 
         temporary_file = tempfile.NamedTemporaryFile(
             prefix=f".{self.path.name}.",
