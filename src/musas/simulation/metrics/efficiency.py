@@ -20,13 +20,18 @@ def planned_distance(
     return _flight_plan_distance(plan)
 
 
-def actual_distance(dataset: SimulationDataset, uav_name: str) -> float:
-    """Return the distance traveled while the UAV was active or completed."""
+def actual_distance(
+    dataset: SimulationDataset,
+    uav_name: str,
+) -> float | None:
+    """Return the traveled distance, or ``None`` if the flight never started."""
     samples = [
         sample
         for sample in dataset.get_trajectory(uav_name)
         if sample.status in {"ACTIVE", "COMPLETED"}
     ]
+    if not samples:
+        return None
     return path_length([sample.position for sample in samples])
 
 
@@ -90,7 +95,7 @@ def average_planned_distance(dataset: SimulationDataset) -> float | None:
 
 
 def average_actual_distance(dataset: SimulationDataset) -> float | None:
-    """Return the average executed distance across UAVs."""
+    """Return the average executed distance across flights that started."""
     return _average_per_uav(dataset, actual_distance)
 
 
