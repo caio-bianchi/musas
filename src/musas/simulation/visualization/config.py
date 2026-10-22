@@ -25,7 +25,7 @@ class VisualizationConfig:
     start_time: float | None = None
     end_time: float | None = None
     frame_step: float = 1.0
-    figure_size: tuple[float, float] = (10.0, 7.0)
+    figure_size: tuple[float, float] = (11.0, 7.0)
     title: str | None = None
 
     def __post_init__(self) -> None:

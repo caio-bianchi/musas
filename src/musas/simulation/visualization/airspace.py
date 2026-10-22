@@ -108,6 +108,8 @@ def _draw_cylinder(axis, view, geometry, color, alpha) -> None:
             color=color,
             alpha=alpha,
             linewidth=0,
+            antialiased=True,
+            shade=True,
         )
         for height in (minimum_z, maximum_z):
             axis.plot(
@@ -116,20 +118,34 @@ def _draw_cylinder(axis, view, geometry, color, alpha) -> None:
                 height,
                 color=color,
                 alpha=min(1.0, alpha + 0.25),
+                linewidth=1.0,
             )
     elif view == "xy":
         axis.add_patch(
-            Circle((center_x, center_y), radius, color=color, alpha=alpha)
+            Circle(
+                (center_x, center_y),
+                radius,
+                facecolor=color,
+                edgecolor=color,
+                linewidth=1.2,
+                alpha=alpha,
+                zorder=1,
+            )
         )
     else:
         horizontal_center = center_x if view == "xz" else center_y
-        axis.add_patch(Rectangle(
-            (horizontal_center - radius, minimum_z),
-            2.0 * radius,
-            maximum_z - minimum_z,
-            color=color,
-            alpha=alpha,
-        ))
+        axis.add_patch(
+            Rectangle(
+                (horizontal_center - radius, minimum_z),
+                2.0 * radius,
+                maximum_z - minimum_z,
+                facecolor=color,
+                edgecolor=color,
+                linewidth=1.2,
+                alpha=alpha,
+                zorder=1,
+            )
+        )
 
 
 def _draw_box(axis, view, geometry, color, alpha) -> None:
@@ -163,6 +179,7 @@ def _draw_box(axis, view, geometry, color, alpha) -> None:
             facecolors=color,
             edgecolors=color,
             alpha=alpha,
+            linewidths=0.8,
         ))
     else:
         bounds = {
@@ -170,13 +187,18 @@ def _draw_box(axis, view, geometry, color, alpha) -> None:
             "xz": (x0, x1, z0, z1),
             "yz": (y0, y1, z0, z1),
         }[view]
-        axis.add_patch(Rectangle(
-            (bounds[0], bounds[2]),
-            bounds[1] - bounds[0],
-            bounds[3] - bounds[2],
-            color=color,
-            alpha=alpha,
-        ))
+        axis.add_patch(
+            Rectangle(
+                (bounds[0], bounds[2]),
+                bounds[1] - bounds[0],
+                bounds[3] - bounds[2],
+                facecolor=color,
+                edgecolor=color,
+                linewidth=1.2,
+                alpha=alpha,
+                zorder=1,
+            )
+        )
 
 
 def _draw_wind_vector(
@@ -191,7 +213,14 @@ def _draw_wind_vector(
     if center is None:
         return
     if view == "3d":
-        axis.quiver(*center, *velocity, color="dodgerblue", length=3.0)
+        axis.quiver(
+            *center,
+            *velocity,
+            color="dodgerblue",
+            linewidth=1.6,
+            arrow_length_ratio=0.18,
+            length=3.0,
+        )
     else:
         first, second = projection_indices(view)
         axis.quiver(
@@ -203,6 +232,8 @@ def _draw_wind_vector(
             angles="xy",
             scale_units="xy",
             scale=0.25,
+            width=0.006,
+            zorder=2,
         )
 
 

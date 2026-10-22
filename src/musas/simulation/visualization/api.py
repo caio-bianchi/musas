@@ -26,7 +26,6 @@ def plot_dataset(
     )
     figure, axis = new_figure(config)
     draw_frame(axis, data, config, current_time)
-    figure.tight_layout()
     if output_path is not None:
         destination = Path(output_path).expanduser().resolve()
         destination.parent.mkdir(parents=True, exist_ok=True)
