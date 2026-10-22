@@ -1,10 +1,13 @@
 """Algorithm contracts and built-in implementations."""
 
 from musas.algorithms.builtins import (
+    AlphaBetaTracking,
     ConstantTimeProcessing,
+    ConstantVelocityTracking,
     DetourPathPlanner,
     DummyStrategicDeconfliction,
     FirstOrderDynamics,
+    FlightPlanAwareTracking,
     GaussianSensor,
     GeometricManeuverDeconfliction,
     MinimumSeparationConflictPrediction,
@@ -30,12 +33,15 @@ from musas.algorithms.interfaces import (
 )
 
 __all__ = [
+    "AlphaBetaTracking",
     "ConflictPredictionAlgorithm",
     "ConstantTimeProcessing",
+    "ConstantVelocityTracking",
     "DetourPathPlanner",
     "DummyStrategicDeconfliction",
     "DynamicsAlgorithm",
     "FirstOrderDynamics",
+    "FlightPlanAwareTracking",
     "GaussianSensor",
     "GeometricManeuverDeconfliction",
     "GuidanceAlgorithm",
