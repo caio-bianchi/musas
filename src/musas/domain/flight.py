@@ -36,9 +36,18 @@ class Conflict():
 
 @dataclass
 class FlightPlan:
+    """Time-ordered trajectory with an operation-level priority.
+
+    Larger priority values represent higher operational priority. Algorithms
+    may use this value to decide which UAV maneuvers, but generated plans must
+    preserve the priority of the operation they update.
+    """
+
     waypoint_list: list[Waypoint] = field(default_factory=list)
+    priority: int = 0
 
     def __post_init__(self) -> None: # sort waypoint list (w/ respect to timestamps)
+        self.priority = int(self.priority)
         self.waypoint_list.sort()
 
     def add_waypoint(self, waypoint: Waypoint) -> None:

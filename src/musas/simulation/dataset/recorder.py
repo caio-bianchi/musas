@@ -191,6 +191,7 @@ class SimulationDatasetRecorder:
                     uav_name,
                     plan_kind,
                     version,
+                    flight_plan.priority,
                     index,
                     waypoint.x,
                     waypoint.y,
@@ -211,9 +212,9 @@ class SimulationDatasetRecorder:
         self._connection.executemany(
             """
             INSERT INTO flight_plan_waypoints(
-                uav_name, plan_kind, plan_version, waypoint_index,
+                uav_name, plan_kind, plan_version, priority, waypoint_index,
                 x, y, z, timestamp
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             rows,
         )

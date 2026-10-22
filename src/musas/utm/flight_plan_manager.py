@@ -62,6 +62,7 @@ class FlightPlanManager:
             event="FLIGHT_PLAN_APPROVED",
             uav=uav_name,
             plan_version=plan_version,
+            priority=flight_plan.priority,
             waypoint_count=len(flight_plan.waypoint_list),
         )
         return plan_version
@@ -144,6 +145,20 @@ class FlightPlanManager:
         if len(set(uav_names)) != len(uav_names):
             raise ValueError(
                 "updates cannot contain more than one plan for the same UAV"
+            )
+        priority_changes = sorted(
+            update.uav_name
+            for update in updates
+            if (
+                (current := self._approved_flight_plans.get(update.uav_name))
+                is not None
+                and update.flight_plan.priority != current.priority
+            )
+        )
+        if priority_changes:
+            raise ValueError(
+                "flight-plan updates cannot change operation priority: "
+                f"{priority_changes}"
             )
         self.network.record_event(
             component=self.name,

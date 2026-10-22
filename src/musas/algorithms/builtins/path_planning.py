@@ -299,7 +299,10 @@ class DetourPathPlanner:
                 continue
             timestamp += segment_length / speed
             waypoints.append(Waypoint(*end, timestamp))
-        return FlightPlan(waypoints)
+        return FlightPlan(
+            waypoint_list=waypoints,
+            priority=original.priority,
+        )
 
     @staticmethod
     def _path_length(flight_plan: FlightPlan) -> float:

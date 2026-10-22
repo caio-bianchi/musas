@@ -1,4 +1,4 @@
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 SCHEMA_SQL = """
@@ -19,6 +19,7 @@ SCHEMA_SQL = """
         uav_name TEXT NOT NULL,
         plan_kind TEXT NOT NULL,
         plan_version INTEGER NOT NULL,
+        priority INTEGER NOT NULL,
         waypoint_index INTEGER NOT NULL,
         x REAL NOT NULL,
         y REAL NOT NULL,

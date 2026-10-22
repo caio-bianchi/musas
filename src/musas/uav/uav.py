@@ -121,6 +121,7 @@ class UAV:
             component=self.name,
             event="FLIGHT_PLAN_PROPOSED",
             proposal_id=proposal.message_id,
+            priority=flight_plan.priority,
         )
 
         self.network.send(proposal)

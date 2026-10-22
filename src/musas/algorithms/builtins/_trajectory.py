@@ -81,12 +81,15 @@ def shifted_flight_plan(
     time_offset: float,
 ) -> FlightPlan:
     """Return a copy of a flight plan shifted in time."""
-    return FlightPlan([
-        Waypoint(
-            x=waypoint.x,
-            y=waypoint.y,
-            z=waypoint.z,
-            t=waypoint.t + time_offset,
-        )
-        for waypoint in flight_plan.waypoint_list
-    ])
+    return FlightPlan(
+        waypoint_list=[
+            Waypoint(
+                x=waypoint.x,
+                y=waypoint.y,
+                z=waypoint.z,
+                t=waypoint.t + time_offset,
+            )
+            for waypoint in flight_plan.waypoint_list
+        ],
+        priority=flight_plan.priority,
+    )

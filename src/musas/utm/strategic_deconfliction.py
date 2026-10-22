@@ -271,6 +271,7 @@ class StrategicDeconflictionModule:
                 self.flight_plan_manager.get_all()
             ),
             "waypoint_count": len(flight_plan.waypoint_list),
+            "priority": flight_plan.priority,
             "obstacle_count": len(airspace.obstacles),
             "geofence_count": len(airspace.geofences),
         }
@@ -286,6 +287,11 @@ class StrategicDeconflictionModule:
         plan_version = None
         if decision == StrategicDecision.COUNTER_PROPOSAL:
             if counter_proposal is not None:
+                if counter_proposal.priority != proposed_flight_plan.priority:
+                    raise ValueError(
+                        "a strategic counterproposal cannot change "
+                        "operation priority"
+                    )
                 plan_version = self.flight_plan_manager.approve(
                     requesting_uav,
                     counter_proposal,

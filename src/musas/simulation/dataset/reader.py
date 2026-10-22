@@ -134,7 +134,7 @@ class SimulationDataset:
         rows = list(
             self._connection.execute(
                 """
-                SELECT x, y, z, timestamp
+                SELECT priority, x, y, z, timestamp
                 FROM flight_plan_waypoints
                 WHERE uav_name = ?
                   AND plan_kind = ?
@@ -146,15 +146,18 @@ class SimulationDataset:
         )
         if not rows:
             return None
-        return FlightPlan([
-            Waypoint(
-                row["x"],
-                row["y"],
-                row["z"],
-                row["timestamp"],
-            )
-            for row in rows
-        ])
+        return FlightPlan(
+            waypoint_list=[
+                Waypoint(
+                    row["x"],
+                    row["y"],
+                    row["z"],
+                    row["timestamp"],
+                )
+                for row in rows
+            ],
+            priority=rows[0]["priority"],
+        )
 
     def get_flight_plan_versions(
         self,
