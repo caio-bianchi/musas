@@ -2,13 +2,10 @@
 
 from musas.algorithms.builtins import (
     ConstantTimeProcessing,
-    ConstantVelocityTracking,
+    DetourPathPlanner,
     DummyStrategicDeconfliction,
     FirstOrderDynamics,
-    FlightPlanAwareTracking,
     GaussianSensor,
-    LateralDetourDeconfliction,
-    LateralManeuverDeconfliction,
     MinimumSeparationConflictPrediction,
     MinimumSeparationTacticalConflictPrediction,
     PerfectSensor,
@@ -17,7 +14,6 @@ from musas.algorithms.builtins import (
     StrategicTrafficConflict,
     TacticalAirspaceConflict,
     TacticalTrafficConflict,
-    VerticalManeuverDeconfliction,
     WaypointGuidance,
 )
 from musas.algorithms.interfaces import (
@@ -35,15 +31,12 @@ from musas.algorithms.interfaces import (
 __all__ = [
     "ConflictPredictionAlgorithm",
     "ConstantTimeProcessing",
-    "ConstantVelocityTracking",
+    "DetourPathPlanner",
     "DummyStrategicDeconfliction",
     "DynamicsAlgorithm",
     "FirstOrderDynamics",
-    "FlightPlanAwareTracking",
     "GaussianSensor",
     "GuidanceAlgorithm",
-    "LateralDetourDeconfliction",
-    "LateralManeuverDeconfliction",
     "MinimumSeparationConflictPrediction",
     "MinimumSeparationTacticalConflictPrediction",
     "PerfectSensor",
@@ -58,6 +51,5 @@ __all__ = [
     "TacticalDeconflictionAlgorithm",
     "TacticalTrafficConflict",
     "TrackingAlgorithm",
-    "VerticalManeuverDeconfliction",
     "WaypointGuidance",
 ]

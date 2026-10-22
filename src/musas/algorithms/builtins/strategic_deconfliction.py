@@ -5,13 +5,8 @@ from musas.algorithms.builtins._trajectory import shifted_flight_plan
 from musas.algorithms.builtins.conflict_prediction import (
     MinimumSeparationConflictPrediction,
 )
-from musas.algorithms.builtins.conflicts import (
-    StrategicAirspaceConflict,
-    StrategicTrafficConflict,
-)
-from musas.algorithms.builtins.lateral_detour_deconfliction import (
-    LateralDetourDeconfliction,
-)
+from musas.algorithms.builtins.conflicts import StrategicAirspaceConflict
+from musas.algorithms.builtins.path_planning import DetourPathPlanner
 from musas.algorithms.interfaces.conflict_prediction import (
     ConflictPredictionAlgorithm,
 )
@@ -23,65 +18,40 @@ from musas.domain.message_types import StrategicDecision
 
 
 class RecursiveTimeShiftDeconfliction(StrategicDeconflictionAlgorithm):
-    """Resolve traffic temporally and known airspace conflicts laterally.
+    """Resolve strategic conflicts with path planning followed by FCFS delay.
 
-    Known obstacle and geofence conflicts are first delegated to a
-    ``LateralDetourDeconfliction``. Each remaining traffic-conflict iteration
-    shifts every waypoint by ``time_shift_step``. The first fully
-    conflict-free candidate is returned as a counterproposal.
+    Known obstacles and geofences are handled first by ``path_planner``. The
+    resulting spatially valid plan is then shifted forward in time until it is
+    separated from every previously approved flight plan. In accordance with
+    first-come, first-served priority, existing plans are never modified.
     """
 
     def __init__(
         self,
-        conflict_prediction_algorithm: ConflictPredictionAlgorithm | None = (
-            None
-        ),
-        time_shift_step: float = 5.0,
-        maximum_iterations: int = 20,
-        airspace_deconfliction_algorithm: (
-            LateralDetourDeconfliction | None
+        conflict_prediction_algorithm: (
+            ConflictPredictionAlgorithm | None
         ) = None,
+        path_planner: DetourPathPlanner | None = None,
+        time_shift_step: float = 5.0,
+        maximum_time_shifts: int = 20,
     ) -> None:
         if time_shift_step <= 0:
             raise ValueError("time_shift_step must be greater than zero")
-        if maximum_iterations <= 0:
-            raise ValueError("maximum_iterations must be greater than zero")
-        if (
-            conflict_prediction_algorithm is not None
-            and not isinstance(
-                conflict_prediction_algorithm,
-                ConflictPredictionAlgorithm,
-            )
-        ):
-            raise TypeError(
-                "conflict_prediction_algorithm must inherit from "
-                "ConflictPredictionAlgorithm"
-            )
+        if maximum_time_shifts < 0:
+            raise ValueError("maximum_time_shifts cannot be negative")
+
         self.conflict_prediction_algorithm = (
             conflict_prediction_algorithm
             if conflict_prediction_algorithm is not None
             else MinimumSeparationConflictPrediction()
         )
-        self.time_shift_step = float(time_shift_step)
-        self.maximum_iterations = int(maximum_iterations)
-        if (
-            airspace_deconfliction_algorithm is not None
-            and not isinstance(
-                airspace_deconfliction_algorithm,
-                LateralDetourDeconfliction,
-            )
-        ):
-            raise TypeError(
-                "airspace_deconfliction_algorithm must be a "
-                "LateralDetourDeconfliction"
-            )
-        self.airspace_deconfliction_algorithm = (
-            airspace_deconfliction_algorithm
-            if airspace_deconfliction_algorithm is not None
-            else LateralDetourDeconfliction(
-                self.conflict_prediction_algorithm
-            )
+        self.path_planner = (
+            path_planner
+            if path_planner is not None
+            else DetourPathPlanner(self.conflict_prediction_algorithm)
         )
+        self.time_shift_step = float(time_shift_step)
+        self.maximum_time_shifts = int(maximum_time_shifts)
 
     def deconflict(
         self,
@@ -98,56 +68,62 @@ class RecursiveTimeShiftDeconfliction(StrategicDeconflictionAlgorithm):
         if not conflicts:
             return StrategicDecision.APPROVE, None, []
 
+        airspace_free_plan = self.path_planner.plan(
+            proposed_flight_plan,
+            airspace,
+        )
+        if airspace_free_plan is None:
+            return StrategicDecision.REJECT, None, []
+
         approved_flight_plans = {
             **inactive_flight_plans,
             **active_flight_plans,
         }
-        candidate = proposed_flight_plan
-        if any(
-            isinstance(conflict, StrategicAirspaceConflict)
-            for conflict in conflicts
-        ):
-            candidate = (
-                self.airspace_deconfliction_algorithm
-                .find_airspace_free_plan(
-                    proposed_flight_plan,
-                    approved_flight_plans,
-                    airspace,
-                )
-            )
-            if candidate is None:
-                return StrategicDecision.REJECT, None, []
+        resolved_plan = self._apply_recursive_time_shift(
+            airspace_free_plan,
+            approved_flight_plans,
+            airspace,
+            shift_count=0,
+        )
+        if resolved_plan is None:
+            return StrategicDecision.REJECT, None, []
 
-        remaining_conflicts = self.conflict_prediction_algorithm.predict(
+        return StrategicDecision.COUNTER_PROPOSAL, resolved_plan, []
+
+    def _apply_recursive_time_shift(
+        self,
+        candidate: FlightPlan,
+        approved_flight_plans: dict[str, FlightPlan],
+        airspace: Airspace,
+        shift_count: int,
+    ) -> FlightPlan | None:
+        conflicts = self.conflict_prediction_algorithm.predict(
             proposed_flight_plan=candidate,
             approved_flight_plans=approved_flight_plans,
             airspace=airspace,
         )
-        if not remaining_conflicts:
-            return StrategicDecision.COUNTER_PROPOSAL, candidate, []
+        if not conflicts:
+            return candidate
+
         if any(
-            not isinstance(conflict, StrategicTrafficConflict)
-            for conflict in remaining_conflicts
+            isinstance(conflict, StrategicAirspaceConflict)
+            for conflict in conflicts
         ):
-            return StrategicDecision.REJECT, None, []
-
-        for iteration in range(1, self.maximum_iterations + 1):
-            shifted_candidate = shifted_flight_plan(
-                candidate,
-                iteration * self.time_shift_step,
+            replanned_candidate = self.path_planner.plan(candidate, airspace)
+            if replanned_candidate is None:
+                return None
+            return self._apply_recursive_time_shift(
+                replanned_candidate,
+                approved_flight_plans,
+                airspace,
+                shift_count=shift_count,
             )
-            candidate_conflicts = (
-                self.conflict_prediction_algorithm.predict(
-                    proposed_flight_plan=shifted_candidate,
-                    approved_flight_plans=approved_flight_plans,
-                    airspace=airspace,
-                )
-            )
-            if not candidate_conflicts:
-                return (
-                    StrategicDecision.COUNTER_PROPOSAL,
-                    shifted_candidate,
-                    [],
-                )
+        if shift_count >= self.maximum_time_shifts:
+            return None
 
-        return StrategicDecision.REJECT, None, []
+        return self._apply_recursive_time_shift(
+            shifted_flight_plan(candidate, self.time_shift_step),
+            approved_flight_plans,
+            airspace,
+            shift_count=shift_count + 1,
+        )
