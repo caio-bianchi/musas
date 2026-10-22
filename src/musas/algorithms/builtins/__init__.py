@@ -23,6 +23,9 @@ from musas.algorithms.builtins.perfect_sensor import PerfectSensor
 from musas.algorithms.builtins.strategic_deconfliction import (
     RecursiveTimeShiftDeconfliction,
 )
+from musas.algorithms.builtins.tactical_deconfliction import (
+    GeometricManeuverDeconfliction,
+)
 from musas.algorithms.builtins.waypoint_guidance import WaypointGuidance
 
 __all__ = [
@@ -31,6 +34,7 @@ __all__ = [
     "DummyStrategicDeconfliction",
     "FirstOrderDynamics",
     "GaussianSensor",
+    "GeometricManeuverDeconfliction",
     "MinimumSeparationConflictPrediction",
     "MinimumSeparationTacticalConflictPrediction",
     "PerfectSensor",
