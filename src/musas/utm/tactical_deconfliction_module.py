@@ -31,15 +31,18 @@ class TacticalDeconflictionModule:
         conflict_prediction_algorithm: TacticalConflictPredictionAlgorithm,
         deconfliction_algorithm: TacticalDeconflictionAlgorithm,
         flight_plan_manager: FlightPlanManager,
+        assessment_interval: float = 1.0,
         processing_time: ProcessingTimeModel = ConstantTimeProcessing(0),
     ) -> None:
-
+        if assessment_interval <= 0:
+            raise ValueError("assessment_interval must be greater than zero")
         self.name = name
         self.env = env
         self.network = network
         self.conflict_prediction_algorithm = conflict_prediction_algorithm
         self.deconfliction_algorithm = deconfliction_algorithm
         self.flight_plan_manager = flight_plan_manager
+        self.assessment_interval = float(assessment_interval)
         self.processing_time = processing_time
 
         self.inbox = simpy.Store(env)
@@ -52,56 +55,66 @@ class TacticalDeconflictionModule:
         network.register(self)
 
     def run(self):
+        """Receive tracks continuously and assess their snapshots periodically."""
+        self.env.process(self.receive_track_updates())
+        while True:
+            yield self.env.timeout(self.assessment_interval)
+            yield self.env.process(self.assess_conflicts())
+
+    def receive_track_updates(self):
+        """Keep the latest track for each active UAV without assessing it."""
         while True:
             message = yield self.inbox.get()
-
             if message.message_type == MessageType.TRACK_UPDATE:
-                yield self.env.process(
-                    self.process_track_update(message)
-                )
+                self.process_track_update(message)
 
     def _processing_context(
         self,
-        message: Message,
         operation: str,
+        tracks: dict[str, TrackPrediction],
         conflict_count: int = 0,
     ) -> dict[str, object]:
-        updated_track = message.payload["track_prediction"]
-        incoming_uav_is_new = updated_track.uav_name not in self._tracks
         return {
             "module": self.name,
             "operation": operation,
-            "message": message,
-            "uav_name": updated_track.uav_name,
             "queue_length": len(self.inbox.items),
-            "track_count": len(self._tracks) + int(incoming_uav_is_new),
+            "assessment_interval": self.assessment_interval,
+            "track_count": len(tracks),
             "flight_plan_count": len(self.flight_plan_manager.get_all()),
-            "predicted_state_count": len(updated_track.predicted_states),
+            "predicted_state_count": sum(
+                len(track.predicted_states)
+                for track in tracks.values()
+            ),
             "conflict_count": conflict_count,
         }
 
-    def process_track_update(
-        self,
-        message: Message,
-    ):
+    def process_track_update(self, message: Message) -> None:
+        """Store a track if it is not stale or from a completed UAV."""
         updated_track = message.payload["track_prediction"]
         if updated_track.uav_name in self._completed_uavs:
-            return None
+            return
         current_track = self._tracks.get(updated_track.uav_name)
 
         if (
             current_track is not None
             and updated_track.generated_at < current_track.generated_at
         ):
-            return None
+            return
 
         self._tracks[updated_track.uav_name] = updated_track
 
+    def assess_conflicts(self):
+        """Assess one coherent snapshot and apply one batch of updates."""
+        tracks = self.get_all_tracks()
+        if not tracks:
+            return None
+
         airspace = self.flight_plan_manager.get_airspace_snapshot()
+        flight_plans = self.flight_plan_manager.get_all()
         prediction_delay = self.processing_time.calculate(
             **self._processing_context(
-                message,
                 "conflict_prediction",
+                tracks,
             )
         )
         if prediction_delay < 0:
@@ -110,8 +123,7 @@ class TacticalDeconflictionModule:
             yield self.env.timeout(prediction_delay)
 
         conflicts = self.conflict_prediction_algorithm.predict(
-            updated_track=updated_track,
-            tracks=self.get_all_tracks(),
+            tracks=tracks,
             airspace=airspace,
         )
         self._latest_conflicts = list(conflicts)
@@ -119,17 +131,28 @@ class TacticalDeconflictionModule:
         if not conflicts:
             return None
 
+        conflict_uav_groups = [
+            list(uav_names)
+            for conflict in conflicts
+            if (uav_names := self._conflict_uav_names(conflict))
+        ]
         self.network.record_event(
             component=self.name,
             event="TACTICAL_CONFLICTS_DETECTED",
-            uav=updated_track.uav_name,
             conflict_count=len(conflicts),
+            track_count=len(tracks),
+            conflicting_uavs=sorted({
+                uav_name
+                for group in conflict_uav_groups
+                for uav_name in group
+            }),
+            conflict_uav_groups=conflict_uav_groups,
         )
 
         deconfliction_delay = self.processing_time.calculate(
             **self._processing_context(
-                message,
                 "deconfliction",
+                tracks,
                 conflict_count=len(conflicts),
             )
         )
@@ -140,8 +163,8 @@ class TacticalDeconflictionModule:
 
         updates = self.deconfliction_algorithm.deconflict(
             conflicts=conflicts,
-            tracks=self.get_all_tracks(),
-            flight_plans=self.flight_plan_manager.get_all(),
+            tracks=tracks,
+            flight_plans=flight_plans,
             airspace=airspace,
         )
         if updates:
@@ -160,6 +183,26 @@ class TacticalDeconflictionModule:
                 )
             self.flight_plan_manager.launch_updates(updates)
         return updates
+
+    @staticmethod
+    def _conflict_uav_names(conflict: Conflict) -> tuple[str, ...]:
+        """Extract UAV names from built-in and compatible conflict types."""
+        grouped_names = getattr(conflict, "uav_names", None)
+        if grouped_names is not None:
+            if isinstance(grouped_names, str):
+                return (grouped_names,)
+            return tuple(sorted({
+                name
+                for name in grouped_names
+                if isinstance(name, str)
+            }))
+
+        names = {
+            name
+            for attribute in ("uav_name", "other_uav")
+            if isinstance(name := getattr(conflict, attribute, None), str)
+        }
+        return tuple(sorted(names))
 
     def get_track(self, uav_name: str) -> TrackPrediction | None:
         return self._tracks.get(uav_name)

@@ -13,13 +13,13 @@ class TacticalConflictPredictionAlgorithm(ABC):
     @abstractmethod
     def predict(
         self,
-        updated_track: TrackPrediction,
         tracks: dict[str, TrackPrediction],
         airspace: Airspace,
     ) -> list[Conflict]:
         """
-        Predict tactical conflicts involving the updated track.
+        Predict tactical conflicts in a snapshot of the current tracks.
 
-        Returns all detected conflicts as Conflict instances.
+        Each traffic pair should be evaluated only once. Returns all detected
+        conflicts as Conflict instances.
         """
         ...

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from itertools import combinations
 from math import dist
 
 from musas.airspace.airspace import Airspace
@@ -171,28 +172,30 @@ class MinimumSeparationTacticalConflictPrediction(
 
     def predict(
         self,
-        updated_track: TrackPrediction,
         tracks: dict[str, TrackPrediction],
         airspace: Airspace,
     ) -> list[Conflict]:
-        updated_states = self._states(updated_track)
         conflicts: list[Conflict] = []
-        conflicts.extend(
-            self._airspace_conflicts(
-                updated_track.uav_name,
-                updated_states,
-                airspace,
-            )
-        )
+        track_states = {
+            name: self._states(track)
+            for name, track in tracks.items()
+        }
 
-        for other_name, other_track in tracks.items():
-            if other_name == updated_track.uav_name:
-                continue
+        for uav_name in sorted(tracks):
+            conflicts.extend(
+                self._airspace_conflicts(
+                    uav_name,
+                    track_states[uav_name],
+                    airspace,
+                )
+            )
+
+        for uav_name, other_name in combinations(sorted(tracks), 2):
             conflict = self._traffic_conflict(
-                updated_track.uav_name,
-                updated_states,
+                uav_name,
+                track_states[uav_name],
                 other_name,
-                self._states(other_track),
+                track_states[other_name],
             )
             if conflict is not None:
                 conflicts.append(conflict)

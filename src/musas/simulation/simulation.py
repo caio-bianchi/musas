@@ -115,6 +115,7 @@ class Simulation:
         history_window: int = 6,
         prediction_horizon: int = 10,
         prediction_step: float = 0.5,
+        tactical_assessment_interval: float = 1.0,
         strategic_processing_time: ProcessingTimeModel = (
             ConstantTimeProcessing(0)
         ),
@@ -140,6 +141,10 @@ class Simulation:
             )
         if report_interval <= 0:
             raise ValueError("report_interval must be greater than zero")
+        if tactical_assessment_interval <= 0:
+            raise ValueError(
+                "tactical_assessment_interval must be greater than zero"
+            )
         if dataset_flush_interval <= 0:
             raise ValueError(
                 "dataset_flush_interval must be greater than zero"
@@ -232,6 +237,9 @@ class Simulation:
             trajectory_record_interval
         )
         self.report_interval = float(report_interval)
+        self.tactical_assessment_interval = float(
+            tactical_assessment_interval
+        )
         self.dataset_path = (
             None
             if dataset_path is None
@@ -257,6 +265,9 @@ class Simulation:
             "history_window": int(history_window),
             "prediction_horizon": int(prediction_horizon),
             "prediction_step": float(prediction_step),
+            "tactical_assessment_interval": (
+                self.tactical_assessment_interval
+            ),
             "strategic_deconfliction_enabled": (
                 strategic_deconfliction_enabled
             ),
@@ -307,6 +318,7 @@ class Simulation:
                 ),
                 deconfliction_algorithm=tactical_deconfliction_algorithm,
                 flight_plan_manager=self.flight_plan_manager,
+                assessment_interval=self.tactical_assessment_interval,
                 processing_time=tactical_processing_time,
             )
 
