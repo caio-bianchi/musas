@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from math import dist, hypot
+from collections.abc import Iterable
+from math import ceil, dist, hypot
 from typing import Sequence
 
 from musas.airspace.airspace import Airspace
@@ -35,9 +36,11 @@ AirspaceRestriction = Obstacle | Geofence
 class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
     """Resolve short-term conflicts with deterministic geometric maneuvers.
 
-    The algorithm tests lateral, vertical, and speed-change candidates. A
-    candidate is accepted only if the maneuvering UAV is separated from every
-    other track and avoids every known obstacle and active geofence.
+    For traffic conflicts, the algorithm tests lateral, vertical, and
+    speed-change candidates. For airspace conflicts, it builds lateral and
+    vertical routes around the restriction with the configured clearance.
+    A candidate is accepted only if the maneuvering UAV is separated from
+    every other track and every route segment avoids known restrictions.
 
     For traffic conflicts, the lower-priority flight plan maneuvers. Ties are
     resolved in FCFS order: the plan appearing later in ``flight_plans``
@@ -64,6 +67,8 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
         speed_factors: Sequence[float] = (0.6, 1.4),
         cooldown: float = 5.0,
         maximum_escape_distance: float = 500.0,
+        allow_lateral: bool = True,
+        allow_vertical: bool = True,
     ) -> None:
         if minimum_separation_distance <= 0:
             raise ValueError(
@@ -84,6 +89,10 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
         if maximum_escape_distance <= 0:
             raise ValueError(
                 "maximum_escape_distance must be greater than zero"
+            )
+        if not allow_lateral and not allow_vertical:
+            raise ValueError(
+                "at least one geometric maneuver must be enabled"
             )
 
         self.minimum_separation_distance = float(
@@ -106,6 +115,8 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
         self.speed_factors = tuple(float(item) for item in speed_factors)
         self.cooldown = float(cooldown)
         self.maximum_escape_distance = float(maximum_escape_distance)
+        self.allow_lateral = allow_lateral
+        self.allow_vertical = allow_vertical
         self._last_update_at: dict[str, float] = {}
         self._escape_maneuver_until: dict[str, float] = {}
 
@@ -163,7 +174,15 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
                 and last_update is not None
                 and current_time - last_update < self.cooldown
             ):
-                continue
+                if not (
+                    isinstance(conflict, TacticalAirspaceConflict)
+                    and not self._flight_plan_avoids_airspace(
+                        flight_plans[uav_name],
+                        current_time,
+                        airspace,
+                    )
+                ):
+                    continue
 
             result = self._resolve_for_uav(
                 uav_name,
@@ -205,6 +224,7 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
             candidate_track = self._track_for_plan(track, candidate)
             if self._candidate_is_valid(
                 uav_name,
+                candidate,
                 candidate_track,
                 tracks,
                 airspace,
@@ -243,7 +263,6 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
         if direction is None:
             direction = (1.0, 0.0)
 
-        targets: list[list[float]] = []
         restriction = (
             conflict.restriction
             if isinstance(conflict, TacticalAirspaceConflict)
@@ -255,39 +274,90 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
                 current,
                 current_time,
             ):
-                targets.extend(
-                    self._escape_targets(
-                        current,
-                        current_time,
-                        restriction,
-                        direction,
-                    )
+                targets = self._escape_targets(
+                    current,
+                    current_time,
+                    restriction,
+                    direction,
                 )
-            else:
-                targets.extend(
-                    self._restriction_detour_targets(
-                        current,
-                        restriction.geometry,
-                        direction,
-                    )
+                return self._plans_for_routes(
+                    original_plan,
+                    current,
+                    current_time,
+                    ([target] for target in targets),
                 )
+            return self._plans_for_routes(
+                original_plan,
+                current,
+                current_time,
+                self._restriction_detour_routes(
+                    current,
+                    restriction.geometry,
+                    direction,
+                ),
+            )
 
-        forward_distance = self.maximum_speed * self.maneuver_duration
+        routes: list[list[list[float]]] = []
         perpendicular = (-direction[1], direction[0])
-        for side in (-1.0, 1.0):
-            targets.append([
-                current[0] + direction[0] * forward_distance
-                + side * perpendicular[0] * self.lateral_offset,
-                current[1] + direction[1] * forward_distance
-                + side * perpendicular[1] * self.lateral_offset,
-                current[2],
-            ])
-        for vertical_direction in (-1.0, 1.0):
-            targets.append([
+        if isinstance(conflict, TacticalTrafficConflict):
+            conflict_position = (
+                conflict.position
+                if conflict.uav_name == track.uav_name
+                else conflict.other_position
+            )
+        else:
+            forward_distance = self.maximum_speed * self.maneuver_duration
+            conflict_position = (
                 current[0] + direction[0] * forward_distance,
                 current[1] + direction[1] * forward_distance,
-                current[2] + vertical_direction * self.vertical_offset,
-            ])
+                current[2],
+            )
+        longitudinal_extent = self.minimum_separation_distance
+
+        if self.allow_lateral:
+            for side in (-1.0, 1.0):
+                routes.append([
+                    [
+                        conflict_position[0]
+                        - direction[0] * longitudinal_extent
+                        + side * perpendicular[0] * self.lateral_offset,
+                        conflict_position[1]
+                        - direction[1] * longitudinal_extent
+                        + side * perpendicular[1] * self.lateral_offset,
+                        current[2],
+                    ],
+                    [
+                        conflict_position[0]
+                        + direction[0] * longitudinal_extent
+                        + side * perpendicular[0] * self.lateral_offset,
+                        conflict_position[1]
+                        + direction[1] * longitudinal_extent
+                        + side * perpendicular[1] * self.lateral_offset,
+                        current[2],
+                    ],
+                ])
+        if self.allow_vertical:
+            for vertical_direction in (-1.0, 1.0):
+                altitude = (
+                    current[2]
+                    + vertical_direction * self.vertical_offset
+                )
+                routes.append([
+                    [
+                        conflict_position[0]
+                        - direction[0] * longitudinal_extent,
+                        conflict_position[1]
+                        - direction[1] * longitudinal_extent,
+                        altitude,
+                    ],
+                    [
+                        conflict_position[0]
+                        + direction[0] * longitudinal_extent,
+                        conflict_position[1]
+                        + direction[1] * longitudinal_extent,
+                        altitude,
+                    ],
+                ])
 
         current_speed = self._norm(state.velocity)
         nominal_speed = min(
@@ -302,24 +372,45 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
                 )
                 * self.maneuver_duration
             )
-            targets.append([
+            routes.append([[
                 current[0] + direction[0] * distance_at_speed,
                 current[1] + direction[1] * distance_at_speed,
                 current[2],
-            ])
+            ]])
 
+        return self._plans_for_routes(
+            original_plan,
+            current,
+            current_time,
+            routes,
+        )
+
+    def _plans_for_routes(
+        self,
+        original_plan: FlightPlan,
+        current: list[float],
+        current_time: float,
+        routes: Iterable[Sequence[Sequence[float]]],
+    ) -> list[FlightPlan]:
         plans: list[FlightPlan] = []
-        seen_targets: set[tuple[float, float, float]] = set()
-        for target in targets:
-            target_key = tuple(round(value, 6) for value in target)
-            if target_key in seen_targets or dist(current, target) <= 1e-9:
+        seen_routes: set[tuple[float, ...]] = set()
+        for route in routes:
+            targets = [list(target) for target in route]
+            if not targets or dist(current, targets[0]) <= 1e-9:
                 continue
-            seen_targets.add(target_key)
+            route_key = tuple(
+                round(value, 6)
+                for target in targets
+                for value in target
+            )
+            if route_key in seen_routes:
+                continue
+            seen_routes.add(route_key)
             candidate = self._build_candidate_plan(
                 original_plan,
                 current,
                 current_time,
-                target,
+                targets,
             )
             if candidate is not None:
                 plans.append(candidate)
@@ -330,26 +421,35 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
         original_plan: FlightPlan,
         current: list[float],
         current_time: float,
-        maneuver_target: list[float],
+        maneuver_targets: list[list[float]],
     ) -> FlightPlan | None:
-        maneuver_travel_time = max(
-            self.maneuver_duration,
-            dist(current, maneuver_target) / self.maximum_speed,
-        )
-        maneuver_time = current_time + maneuver_travel_time
+        if not maneuver_targets:
+            return None
+
+        maneuver_waypoints: list[Waypoint] = []
+        previous = current
+        maneuver_time = current_time
+        for index, target in enumerate(maneuver_targets):
+            travel_time = dist(previous, target) / self.maximum_speed
+            if index == 0:
+                travel_time = max(self.maneuver_duration, travel_time)
+            maneuver_time += travel_time
+            maneuver_waypoints.append(Waypoint(*target, maneuver_time))
+            previous = target
+
         desired_rejoin_time = maneuver_time + self.recovery_duration
         original_end_time = original_plan.waypoint_list[-1].t
         sampled_rejoin_time = min(desired_rejoin_time, original_end_time)
         rejoin_position = position_at(original_plan, sampled_rejoin_time)
         recovery_time = max(
             self.recovery_duration,
-            dist(maneuver_target, rejoin_position) / self.maximum_speed,
+            dist(previous, rejoin_position) / self.maximum_speed,
         )
         rejoin_time = maneuver_time + recovery_time
 
         waypoints = [
             Waypoint(*current, current_time),
-            Waypoint(*maneuver_target, maneuver_time),
+            *maneuver_waypoints,
             Waypoint(*rejoin_position, rejoin_time),
         ]
         waypoints.extend(
@@ -399,6 +499,7 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
     def _candidate_is_valid(
         self,
         uav_name: str,
+        candidate_plan: FlightPlan,
         candidate_track: TrackPrediction,
         tracks: dict[str, TrackPrediction],
         airspace: Airspace,
@@ -442,7 +543,11 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
             tracks,
         ):
             return False
-        return self._airspace_recovery_is_valid(candidate_track, airspace)
+        return self._airspace_recovery_is_valid(
+            candidate_track,
+            candidate_plan,
+            airspace,
+        )
 
     def _traffic_recovery_is_valid(
         self,
@@ -502,34 +607,310 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
     def _airspace_recovery_is_valid(
         self,
         candidate_track: TrackPrediction,
+        candidate_plan: FlightPlan,
         airspace: Airspace,
     ) -> bool:
-        states = self._states(candidate_track)
         restrictions: tuple[AirspaceRestriction, ...] = (
             *airspace.obstacles.values(),
             *airspace.geofences.values(),
         )
         for restriction in restrictions:
-            prohibited = [
-                self._restriction_contains(
+            if not self._route_avoids_restriction(
+                candidate_plan,
+                restriction,
+                allow_initial_escape=self._restriction_contains_with_clearance(
                     restriction,
-                    state.position,
-                    state.timestamp,
-                )
-                for state in states
-            ]
-            if not prohibited[0]:
-                if any(prohibited[1:]):
-                    return False
-                continue
-
-            try:
-                first_clear = prohibited.index(False, 1)
-            except ValueError:
-                return False
-            if any(prohibited[first_clear + 1:]):
+                    candidate_track.estimated_state.position,
+                    candidate_track.estimated_state.timestamp,
+                ),
+            ):
                 return False
         return True
+
+    def _flight_plan_avoids_airspace(
+        self,
+        flight_plan: FlightPlan,
+        current_time: float,
+        airspace: Airspace,
+    ) -> bool:
+        remaining_plan = self._remaining_plan(flight_plan, current_time)
+        start = remaining_plan.waypoint_list[0]
+        return all(
+            self._route_avoids_restriction(
+                remaining_plan,
+                restriction,
+                allow_initial_escape=self._restriction_contains_with_clearance(
+                    restriction,
+                    start.position(),
+                    start.t,
+                ),
+            )
+            for restriction in (
+                *airspace.obstacles.values(),
+                *airspace.geofences.values(),
+            )
+        )
+
+    @staticmethod
+    def _remaining_plan(
+        flight_plan: FlightPlan,
+        current_time: float,
+    ) -> FlightPlan:
+        return FlightPlan(
+            waypoint_list=[
+                Waypoint(*position_at(flight_plan, current_time), current_time),
+                *(
+                    Waypoint(item.x, item.y, item.z, item.t)
+                    for item in flight_plan.waypoint_list
+                    if item.t > current_time
+                ),
+            ],
+            priority=flight_plan.priority,
+        )
+
+    def _route_avoids_restriction(
+        self,
+        flight_plan: FlightPlan,
+        restriction: AirspaceRestriction,
+        allow_initial_escape: bool,
+    ) -> bool:
+        waypoints = flight_plan.waypoint_list
+        if len(waypoints) < 2:
+            return not self._restriction_contains_with_clearance(
+                restriction,
+                waypoints[0].position(),
+                waypoints[0].t,
+            )
+
+        first_segment = 0
+        if allow_initial_escape:
+            first_clear = next(
+                (
+                    index
+                    for index, waypoint in enumerate(waypoints[1:], 1)
+                    if not self._restriction_contains_with_clearance(
+                        restriction,
+                        waypoint.position(),
+                        waypoint.t,
+                    )
+                ),
+                None,
+            )
+            if first_clear is None:
+                return False
+            first_segment = first_clear
+
+        return not any(
+            self._segment_intersects_restriction(start, end, restriction)
+            for start, end in zip(
+                waypoints[first_segment:],
+                waypoints[first_segment + 1:],
+            )
+        )
+
+    def _segment_intersects_restriction(
+        self,
+        start: Waypoint,
+        end: Waypoint,
+        restriction: AirspaceRestriction,
+    ) -> bool:
+        start_time = start.t
+        end_time = end.t
+        if end_time <= start_time:
+            return self._restriction_contains_with_clearance(
+                restriction,
+                start.position(),
+                start_time,
+            )
+
+        active_start = start_time
+        active_end = end_time
+        if isinstance(restriction, Geofence):
+            if restriction.active_from is not None:
+                active_start = max(active_start, restriction.active_from)
+            if restriction.active_until is not None:
+                active_end = min(active_end, restriction.active_until)
+            if active_end < active_start:
+                return False
+
+        duration = end_time - start_time
+        start_fraction = (active_start - start_time) / duration
+        end_fraction = (active_end - start_time) / duration
+        start_position = self._interpolate_segment(
+            start.position(),
+            end.position(),
+            start_fraction,
+        )
+        end_position = self._interpolate_segment(
+            start.position(),
+            end.position(),
+            end_fraction,
+        )
+        return self._segment_intersects_geometry(
+            start_position,
+            end_position,
+            restriction.geometry,
+        )
+
+    def _segment_intersects_geometry(
+        self,
+        start: Sequence[float],
+        end: Sequence[float],
+        geometry: Geometry,
+    ) -> bool:
+        clearance = self.airspace_clearance
+        if isinstance(geometry, Box3D):
+            minimums = (
+                geometry.minimum_x - clearance,
+                geometry.minimum_y - clearance,
+                geometry.minimum_z - clearance,
+            )
+            maximums = (
+                geometry.maximum_x + clearance,
+                geometry.maximum_y + clearance,
+                geometry.maximum_z + clearance,
+            )
+            return self._segment_intersects_box(
+                start,
+                end,
+                minimums,
+                maximums,
+            )
+        if isinstance(geometry, Cylinder3D):
+            return self._segment_intersects_cylinder(
+                start,
+                end,
+                geometry.center_x,
+                geometry.center_y,
+                geometry.radius + clearance,
+                geometry.minimum_z - clearance,
+                geometry.maximum_z + clearance,
+            )
+
+        segment_length = dist(start, end)
+        sample_step = max(clearance / 2.0, 1e-3)
+        sample_count = max(1, ceil(segment_length / sample_step))
+        return any(
+            geometry.contains(
+                self._interpolate_segment(start, end, index / sample_count)
+            )
+            for index in range(sample_count + 1)
+        )
+
+    def _restriction_contains_with_clearance(
+        self,
+        restriction: AirspaceRestriction,
+        position: Sequence[float],
+        timestamp: float,
+    ) -> bool:
+        if (
+            isinstance(restriction, Geofence)
+            and not restriction.is_active_at(timestamp)
+        ):
+            return False
+        geometry = restriction.geometry
+        clearance = self.airspace_clearance
+        x, y, z = (float(value) for value in position)
+        if isinstance(geometry, Box3D):
+            return (
+                geometry.minimum_x - clearance
+                <= x
+                <= geometry.maximum_x + clearance
+                and geometry.minimum_y - clearance
+                <= y
+                <= geometry.maximum_y + clearance
+                and geometry.minimum_z - clearance
+                <= z
+                <= geometry.maximum_z + clearance
+            )
+        if isinstance(geometry, Cylinder3D):
+            return (
+                hypot(x - geometry.center_x, y - geometry.center_y)
+                <= geometry.radius + clearance
+                and geometry.minimum_z - clearance
+                <= z
+                <= geometry.maximum_z + clearance
+            )
+        return geometry.contains(position)
+
+    @staticmethod
+    def _segment_intersects_box(
+        start: Sequence[float],
+        end: Sequence[float],
+        minimums: Sequence[float],
+        maximums: Sequence[float],
+    ) -> bool:
+        lower, upper = 0.0, 1.0
+        for initial, final, minimum, maximum in zip(
+            start,
+            end,
+            minimums,
+            maximums,
+        ):
+            change = final - initial
+            if abs(change) <= 1e-12:
+                if initial < minimum or initial > maximum:
+                    return False
+                continue
+            first = (minimum - initial) / change
+            second = (maximum - initial) / change
+            entry, exit_ = sorted((first, second))
+            lower = max(lower, entry)
+            upper = min(upper, exit_)
+            if lower > upper:
+                return False
+        return True
+
+    @staticmethod
+    def _segment_intersects_cylinder(
+        start: Sequence[float],
+        end: Sequence[float],
+        center_x: float,
+        center_y: float,
+        radius: float,
+        minimum_z: float,
+        maximum_z: float,
+    ) -> bool:
+        lower, upper = 0.0, 1.0
+        delta_z = end[2] - start[2]
+        if abs(delta_z) <= 1e-12:
+            if start[2] < minimum_z or start[2] > maximum_z:
+                return False
+        else:
+            first = (minimum_z - start[2]) / delta_z
+            second = (maximum_z - start[2]) / delta_z
+            entry, exit_ = sorted((first, second))
+            lower = max(lower, entry)
+            upper = min(upper, exit_)
+            if lower > upper:
+                return False
+
+        start_x = start[0] - center_x
+        start_y = start[1] - center_y
+        delta_x = end[0] - start[0]
+        delta_y = end[1] - start[1]
+        squared_speed = delta_x * delta_x + delta_y * delta_y
+        if squared_speed <= 1e-12:
+            closest = lower
+        else:
+            closest = -(
+                start_x * delta_x + start_y * delta_y
+            ) / squared_speed
+            closest = min(upper, max(lower, closest))
+        x = start_x + closest * delta_x
+        y = start_y + closest * delta_y
+        return x * x + y * y <= radius * radius
+
+    @staticmethod
+    def _interpolate_segment(
+        start: Sequence[float],
+        end: Sequence[float],
+        fraction: float,
+    ) -> list[float]:
+        return [
+            initial + fraction * (final - initial)
+            for initial, final in zip(start, end)
+        ]
 
     def _escape_targets(
         self,
@@ -541,6 +922,7 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
         geometry = restriction.geometry
         targets: list[list[float]] = []
         clearance = self.airspace_clearance
+        escape_extent = clearance + max(1e-3, clearance * 0.01)
         if isinstance(geometry, Cylinder3D):
             radial_x = current[0] - geometry.center_x
             radial_y = current[1] - geometry.center_y
@@ -548,28 +930,34 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
             if radial_norm <= 1e-9:
                 radial_x, radial_y = direction
                 radial_norm = 1.0
-            targets.extend([
-                [
+            if self.allow_lateral:
+                targets.append([
                     geometry.center_x
                     + radial_x / radial_norm
-                    * (geometry.radius + clearance),
+                    * (geometry.radius + escape_extent),
                     geometry.center_y
                     + radial_y / radial_norm
-                    * (geometry.radius + clearance),
+                    * (geometry.radius + escape_extent),
                     current[2],
-                ],
-                [current[0], current[1], geometry.maximum_z + clearance],
-                [current[0], current[1], geometry.minimum_z - clearance],
-            ])
+                ])
+            if self.allow_vertical:
+                targets.extend([
+                    [current[0], current[1], geometry.maximum_z + escape_extent],
+                    [current[0], current[1], geometry.minimum_z - escape_extent],
+                ])
         elif isinstance(geometry, Box3D):
-            targets.extend([
-                [geometry.minimum_x - clearance, current[1], current[2]],
-                [geometry.maximum_x + clearance, current[1], current[2]],
-                [current[0], geometry.minimum_y - clearance, current[2]],
-                [current[0], geometry.maximum_y + clearance, current[2]],
-                [current[0], current[1], geometry.minimum_z - clearance],
-                [current[0], current[1], geometry.maximum_z + clearance],
-            ])
+            if self.allow_lateral:
+                targets.extend([
+                    [geometry.minimum_x - escape_extent, current[1], current[2]],
+                    [geometry.maximum_x + escape_extent, current[1], current[2]],
+                    [current[0], geometry.minimum_y - escape_extent, current[2]],
+                    [current[0], geometry.maximum_y + escape_extent, current[2]],
+                ])
+            if self.allow_vertical:
+                targets.extend([
+                    [current[0], current[1], geometry.minimum_z - escape_extent],
+                    [current[0], current[1], geometry.maximum_z + escape_extent],
+                ])
         else:
             targets.extend(
                 self._sampled_escape_targets(
@@ -594,14 +982,19 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
         timestamp: float,
         restriction: AirspaceRestriction,
     ) -> list[list[float]]:
-        directions = (
-            (1.0, 0.0, 0.0),
-            (-1.0, 0.0, 0.0),
-            (0.0, 1.0, 0.0),
-            (0.0, -1.0, 0.0),
-            (0.0, 0.0, 1.0),
-            (0.0, 0.0, -1.0),
-        )
+        directions: list[tuple[float, float, float]] = []
+        if self.allow_lateral:
+            directions.extend([
+                (1.0, 0.0, 0.0),
+                (-1.0, 0.0, 0.0),
+                (0.0, 1.0, 0.0),
+                (0.0, -1.0, 0.0),
+            ])
+        if self.allow_vertical:
+            directions.extend([
+                (0.0, 0.0, 1.0),
+                (0.0, 0.0, -1.0),
+            ])
         results = []
         for direction in directions:
             distance_from_start = self.airspace_clearance
@@ -620,48 +1013,89 @@ class GeometricManeuverDeconfliction(TacticalDeconflictionAlgorithm):
                 distance_from_start += self.airspace_clearance
         return results
 
-    def _restriction_detour_targets(
+    def _restriction_detour_routes(
         self,
         current: list[float],
         geometry: Geometry,
         direction: tuple[float, float],
-    ) -> list[list[float]]:
+    ) -> list[list[list[float]]]:
         perpendicular = (-direction[1], direction[0])
+        clearance = self.airspace_clearance
+        # Keep detour segments just beyond the configured clearance boundary,
+        # so numerical equality cannot be interpreted as an intersection.
+        padding = max(1e-3, clearance * 0.01)
         if isinstance(geometry, Cylinder3D):
             center_x, center_y = geometry.center_x, geometry.center_y
-            lateral_extent = geometry.radius + self.airspace_clearance
+            longitudinal_extent = geometry.radius + clearance + padding
+            lateral_extent = geometry.radius + clearance + padding
         elif isinstance(geometry, Box3D):
             center_x = (geometry.minimum_x + geometry.maximum_x) / 2.0
             center_y = (geometry.minimum_y + geometry.maximum_y) / 2.0
             half_x = (geometry.maximum_x - geometry.minimum_x) / 2.0
             half_y = (geometry.maximum_y - geometry.minimum_y) / 2.0
+            longitudinal_extent = (
+                abs(direction[0]) * half_x
+                + abs(direction[1]) * half_y
+                + clearance
+                + padding
+            )
             lateral_extent = (
                 abs(perpendicular[0]) * half_x
                 + abs(perpendicular[1]) * half_y
-                + self.airspace_clearance
+                + clearance
+                + padding
             )
         else:
             return []
 
-        return [
-            [
-                center_x + side * perpendicular[0] * lateral_extent,
-                center_y + side * perpendicular[1] * lateral_extent,
-                current[2],
-            ]
-            for side in (-1.0, 1.0)
-        ] + [
-            [
-                current[0],
-                current[1],
-                geometry.maximum_z + self.airspace_clearance,
-            ],
-            [
-                current[0],
-                current[1],
-                geometry.minimum_z - self.airspace_clearance,
-            ],
-        ]
+        routes = []
+        if self.allow_lateral:
+            for side in (-1.0, 1.0):
+                routes.append([
+                    [
+                        center_x - direction[0] * longitudinal_extent
+                        + side * perpendicular[0] * lateral_extent,
+                        center_y - direction[1] * longitudinal_extent
+                        + side * perpendicular[1] * lateral_extent,
+                        current[2],
+                    ],
+                    [
+                        center_x + direction[0] * longitudinal_extent
+                        + side * perpendicular[0] * lateral_extent,
+                        center_y + direction[1] * longitudinal_extent
+                        + side * perpendicular[1] * lateral_extent,
+                        current[2],
+                    ],
+                ])
+
+        if self.allow_vertical:
+            routes.extend([
+                [
+                    [
+                        center_x - direction[0] * longitudinal_extent,
+                        center_y - direction[1] * longitudinal_extent,
+                        geometry.maximum_z + clearance + padding,
+                    ],
+                    [
+                        center_x + direction[0] * longitudinal_extent,
+                        center_y + direction[1] * longitudinal_extent,
+                        geometry.maximum_z + clearance + padding,
+                    ],
+                ],
+                [
+                    [
+                        center_x - direction[0] * longitudinal_extent,
+                        center_y - direction[1] * longitudinal_extent,
+                        geometry.minimum_z - clearance - padding,
+                    ],
+                    [
+                        center_x + direction[0] * longitudinal_extent,
+                        center_y + direction[1] * longitudinal_extent,
+                        geometry.minimum_z - clearance - padding,
+                    ],
+                ],
+            ])
+        return routes
 
     @staticmethod
     def _maneuvering_uav(

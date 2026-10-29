@@ -18,6 +18,9 @@ from musas.algorithms.builtins.first_order_dynamics import (
     FirstOrderDynamics,
 )
 from musas.algorithms.builtins.gaussian_sensor import GaussianSensor
+from musas.algorithms.builtins.hybrid_geometric_maneuver import (
+    HybridGeometricManeuver,
+)
 from musas.algorithms.builtins.path_planning import DetourPathPlanner
 from musas.algorithms.builtins.perfect_sensor import PerfectSensor
 from musas.algorithms.builtins.strategic_deconfliction import (
@@ -43,6 +46,7 @@ __all__ = [
     "FlightPlanAwareTracking",
     "GaussianSensor",
     "GeometricManeuverDeconfliction",
+    "HybridGeometricManeuver",
     "MinimumSeparationConflictPrediction",
     "MinimumSeparationTacticalConflictPrediction",
     "PerfectSensor",
