@@ -76,10 +76,16 @@ class CommunicationNetwork:
             self.record_event(
                 component="Network",
                 event="MESSAGE_SENT",
+                summary=(
+                    f"{message.message_type.name} sent from "
+                    f"{message.source} to {message.destination}"
+                ),
                 source=message.source,
                 destination=message.destination,
                 message_type=message.message_type.name,
                 message_id=message.message_id,
+                issued_at=float(message.issue_timestamp),
+                configured_network_delay=self.delay,
             )
 
         yield self.env.timeout(self.delay)
@@ -93,8 +99,17 @@ class CommunicationNetwork:
             self.record_event(
                 component="Network",
                 event="MESSAGE_DELIVERED",
+                summary=(
+                    f"{message.message_type.name} from {message.source} "
+                    f"delivered to {message.destination}"
+                ),
                 source=message.source,
                 destination=message.destination,
                 message_type=message.message_type.name,
                 message_id=message.message_id,
+                issued_at=float(message.issue_timestamp),
+                delivered_at=float(self.env.now),
+                transmission_time=(
+                    float(self.env.now) - float(message.issue_timestamp)
+                ),
             )

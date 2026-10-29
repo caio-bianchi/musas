@@ -3,6 +3,10 @@ import simpy
 from musas.algorithms.builtins.constant_time_processing import (
     ConstantTimeProcessing,
 )
+from musas.algorithms.builtins.conflicts import (
+    TacticalAirspaceConflict,
+    TacticalTrafficConflict,
+)
 from musas.algorithms.interfaces.tactical_conflict_prediction import (
     TacticalConflictPredictionAlgorithm,
 )
@@ -51,6 +55,7 @@ class TacticalDeconflictionModule:
         self._latest_conflicts: list[Conflict] = []
         self._issued_updates: dict[str, FlightPlan] = {}
         self._issued_update_history: dict[str, list[FlightPlan]] = {}
+        self._assessment_count = 0
 
         network.register(self)
 
@@ -108,6 +113,8 @@ class TacticalDeconflictionModule:
         tracks = self.get_all_tracks()
         if not tracks:
             return None
+        self._assessment_count += 1
+        assessment_id = self._assessment_count
 
         airspace = self.flight_plan_manager.get_airspace_snapshot()
         flight_plans = self.flight_plan_manager.get_all()
@@ -139,14 +146,28 @@ class TacticalDeconflictionModule:
         self.network.record_event(
             component=self.name,
             event="TACTICAL_CONFLICTS_DETECTED",
+            summary=(
+                f"Assessment {assessment_id} observed {len(conflicts)} "
+                "predicted tactical conflict(s)"
+            ),
+            assessment_id=assessment_id,
+            observation_scope="single_assessment_snapshot",
             conflict_count=len(conflicts),
             track_count=len(tracks),
+            track_generated_at={
+                uav_name: track.generated_at
+                for uav_name, track in sorted(tracks.items())
+            },
             conflicting_uavs=sorted({
                 uav_name
                 for group in conflict_uav_groups
                 for uav_name in group
             }),
             conflict_uav_groups=conflict_uav_groups,
+            conflicts=[
+                self._conflict_details(conflict)
+                for conflict in conflicts
+            ],
         )
 
         deconfliction_delay = self.processing_time.calculate(
@@ -171,7 +192,28 @@ class TacticalDeconflictionModule:
             self.network.record_event(
                 component=self.name,
                 event="TACTICAL_UPDATES_ISSUED",
+                summary=(
+                    f"Assessment {assessment_id} issued "
+                    f"{len(updates)} tactical flight-plan update(s)"
+                ),
+                assessment_id=assessment_id,
+                update_count=len(updates),
                 uavs=[update.uav_name for update in updates],
+                updates=[
+                    {
+                        "uav": update.uav_name,
+                        "waypoint_count": len(
+                            update.flight_plan.waypoint_list
+                        ),
+                        "valid_from": (
+                            update.flight_plan.waypoint_list[0].t
+                        ),
+                        "planned_arrival": (
+                            update.flight_plan.waypoint_list[-1].t
+                        ),
+                    }
+                    for update in updates
+                ],
             )
             for update in updates:
                 self._issued_updates[update.uav_name] = update.flight_plan
@@ -203,6 +245,49 @@ class TacticalDeconflictionModule:
             if isinstance(name := getattr(conflict, attribute, None), str)
         }
         return tuple(sorted(names))
+
+    @staticmethod
+    def _conflict_details(conflict: Conflict) -> dict[str, object]:
+        """Return a readable, JSON-compatible tactical conflict summary."""
+        if isinstance(conflict, TacticalTrafficConflict):
+            return {
+                "conflict_type": "UAV_TO_UAV",
+                "uavs": [conflict.uav_name, conflict.other_uav],
+                "predicted_at": conflict.timestamp,
+                "predicted_separation": conflict.separation_distance,
+                "positions": {
+                    conflict.uav_name: list(conflict.position),
+                    conflict.other_uav: list(conflict.other_position),
+                },
+            }
+
+        if isinstance(conflict, TacticalAirspaceConflict):
+            restriction = conflict.restriction
+            restriction_id = getattr(
+                restriction,
+                "obstacle_id",
+                getattr(restriction, "geofence_id", None),
+            )
+            return {
+                "conflict_type": (
+                    "UAV_TO_OBSTACLE"
+                    if hasattr(restriction, "obstacle_id")
+                    else "UAV_TO_GEOFENCE"
+                ),
+                "uavs": [conflict.uav_name],
+                "predicted_at": conflict.timestamp,
+                "predicted_position": list(conflict.position),
+                "restriction_id": restriction_id,
+                "restriction_name": getattr(restriction, "name", None),
+            }
+
+        return {
+            "conflict_type": type(conflict).__name__,
+            "uavs": list(
+                TacticalDeconflictionModule._conflict_uav_names(conflict)
+            ),
+            "predicted_at": getattr(conflict, "timestamp", None),
+        }
 
     def get_track(self, uav_name: str) -> TrackPrediction | None:
         return self._tracks.get(uav_name)

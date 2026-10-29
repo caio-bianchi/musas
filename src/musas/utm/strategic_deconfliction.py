@@ -1,6 +1,10 @@
 import simpy
 
 from musas.algorithms.builtins.constant_time_processing import ConstantTimeProcessing
+from musas.algorithms.builtins.conflicts import (
+    StrategicAirspaceConflict,
+    StrategicTrafficConflict,
+)
 from musas.algorithms.interfaces.conflict_prediction import ConflictPredictionAlgorithm
 from musas.algorithms.interfaces.strategic_deconfliction import StrategicDeconflictionAlgorithm
 from musas.algorithms.interfaces.processing_time import ProcessingTimeModel
@@ -110,8 +114,16 @@ class StrategicDeconflictionModule:
         self.network.record_event(
             component=self.name,
             event="CONFLICT_PREDICTION_COMPLETED",
+            summary=(
+                f"Strategic prediction for {requesting_uav} found "
+                f"{len(predicted_conflicts)} conflict(s)"
+            ),
             uav=requesting_uav,
             conflict_count=len(predicted_conflicts),
+            conflicts=[
+                self._conflict_details(conflict, requesting_uav)
+                for conflict in predicted_conflicts
+            ],
         )
 
         if not predicted_conflicts:
@@ -236,9 +248,15 @@ class StrategicDeconflictionModule:
         self.network.record_event(
             component=self.name,
             event="STRATEGIC_DECISION_MADE",
+            summary=(
+                f"Strategic decision for {proposal.source}: "
+                f"{decision.value}"
+            ),
             uav=proposal.source,
             decision=decision.value,
             update_count=update_count,
+            proposal_id=proposal.message_id,
+            plan_version=plan_version,
         )
         response = Message(
             source=self.name,
@@ -253,6 +271,52 @@ class StrategicDeconflictionModule:
             in_reply_to=proposal.message_id,
         )
         return self.network.send(response)
+
+    @staticmethod
+    def _conflict_details(
+        conflict: object,
+        proposed_uav: str,
+    ) -> dict[str, object]:
+        """Return a readable, JSON-compatible strategic conflict summary."""
+        if isinstance(conflict, StrategicTrafficConflict):
+            return {
+                "conflict_type": "UAV_TO_UAV",
+                "uavs": [proposed_uav, conflict.conflicting_uav],
+                "predicted_at": conflict.timestamp,
+                "predicted_separation": conflict.separation_distance,
+                "positions": {
+                    proposed_uav: list(conflict.proposed_position),
+                    conflict.conflicting_uav: list(
+                        conflict.conflicting_position
+                    ),
+                },
+            }
+
+        if isinstance(conflict, StrategicAirspaceConflict):
+            restriction = conflict.restriction
+            restriction_id = getattr(
+                restriction,
+                "obstacle_id",
+                getattr(restriction, "geofence_id", None),
+            )
+            return {
+                "conflict_type": (
+                    "UAV_TO_OBSTACLE"
+                    if hasattr(restriction, "obstacle_id")
+                    else "UAV_TO_GEOFENCE"
+                ),
+                "uavs": [proposed_uav],
+                "predicted_at": conflict.timestamp,
+                "predicted_position": list(conflict.position),
+                "restriction_id": restriction_id,
+                "restriction_name": getattr(restriction, "name", None),
+            }
+
+        return {
+            "conflict_type": type(conflict).__name__,
+            "uavs": [proposed_uav],
+            "predicted_at": getattr(conflict, "timestamp", None),
+        }
 
     def _processing_context(
         self,
