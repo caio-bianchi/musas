@@ -25,6 +25,7 @@ class UAVStatus(Enum):
     ACTIVE = 4
     COMPLETED = 5
     WAITING_DEPARTURE = 6
+    COLLIDED = 7
 
 
 class UAV:
@@ -80,7 +81,10 @@ class UAV:
         tracking_module: TrackingModule,
         report_interval: float,
     ):
-        while self.status != UAVStatus.COMPLETED:
+        while self.status not in {
+            UAVStatus.COMPLETED,
+            UAVStatus.COLLIDED,
+        }:
             measurement = self.sensor_model.measure(
                 position=self.dynamics.position,
                 velocity=self.dynamics.velocity,
@@ -163,17 +167,30 @@ class UAV:
         self.network.record_event(
             component=self.name,
             event="STRATEGIC_RESPONSE_RECEIVED",
+            summary=(
+                f"{self.name} received strategic decision "
+                f"{decision.value}"
+            ),
+            uav=self.name,
             decision=decision.value,
+            response_message_id=message.message_id,
+            proposal_id=message.in_reply_to,
         )
 
         self.pending_proposals.pop(message.in_reply_to, None)
 
     def _handle_update_flight_plan(self, message: Message) -> None:
-        if self.status == UAVStatus.COMPLETED:
+        if self.status in {UAVStatus.COMPLETED, UAVStatus.COLLIDED}:
             self.network.record_event(
                 component=self.name,
                 event="FLIGHT_PLAN_UPDATE_IGNORED",
-                reason="FLIGHT_COMPLETED",
+                summary=(
+                    f"{self.name} ignored a flight-plan update because its "
+                    f"status is {self.status.name}"
+                ),
+                uav=self.name,
+                reason=self.status.name,
+                update_message_id=message.message_id,
             )
             return
 
@@ -187,6 +204,14 @@ class UAV:
             self.network.record_event(
                 component=self.name,
                 event="ACTIVE_FLIGHT_PLAN_UPDATED",
+                summary=(
+                    f"{self.name} loaded tactical flight-plan version "
+                    f"{plan_version}"
+                ),
+                uav=self.name,
+                plan_version=plan_version,
+                waypoint_count=len(new_flight_plan.waypoint_list),
+                update_message_id=message.message_id,
             )
             self._record_loaded_plan(plan_version)
         else:
@@ -282,6 +307,28 @@ class UAV:
         )
 
         self.network.send(message)
+
+    def crash(
+        self,
+        reason: str,
+        other_uav: str | None = None,
+        obstacle_id: str | None = None,
+    ) -> bool:
+        """Stop an active UAV permanently after a physical collision."""
+        if self.status != UAVStatus.ACTIVE:
+            return False
+
+        self.status = UAVStatus.COLLIDED
+        self.dynamics.stop()
+        self.network.record_event(
+            component=self.name,
+            event="UAV_COLLIDED",
+            reason=reason,
+            other_uav=other_uav,
+            obstacle_id=obstacle_id,
+            position=list(self.dynamics.position),
+        )
+        return True
 
     def _notify_activation(self) -> None:
         self.network.record_event(

@@ -80,17 +80,30 @@ def draw_frame(
                 zorder=4,
             )
         if trajectory and config.show_current_positions:
-            position = trajectory[-1].position
-            _scatter_positions(
-                axis,
-                config.view,
-                [position],
-                color=[color],
-                edgecolor="white",
-                linewidth=1.2,
-                s=64,
-                zorder=6,
-            )
+            current_state = trajectory[-1]
+            position = current_state.position
+            if current_state.status == "COLLIDED":
+                _scatter_positions(
+                    axis,
+                    config.view,
+                    [position],
+                    color=[color],
+                    marker="x",
+                    linewidth=2.4,
+                    s=90,
+                    zorder=6,
+                )
+            else:
+                _scatter_positions(
+                    axis,
+                    config.view,
+                    [position],
+                    color=[color],
+                    edgecolor="white",
+                    linewidth=1.2,
+                    s=64,
+                    zorder=6,
+                )
             if config.show_labels:
                 _label_position(axis, config.view, position, name)
 

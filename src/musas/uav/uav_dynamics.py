@@ -76,3 +76,10 @@ class UAVDynamics:
         self.velocity = list(velocity)
 
         self.commanded_velocity = [0.0, 0.0, 0.0]
+
+    def stop(self):
+        """Stop all motion without changing the current position."""
+        self.air_velocity = [0.0, 0.0, 0.0]
+        self.environmental_velocity = [0.0, 0.0, 0.0]
+        self.velocity = [0.0, 0.0, 0.0]
+        self.commanded_velocity = [0.0, 0.0, 0.0]

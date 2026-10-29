@@ -87,12 +87,7 @@ class FlightPlanManager:
         return flight_plan
 
     def complete(self, uav_name: str) -> FlightPlan | None:
-        flight_plan = self._active_flight_plans.pop(uav_name, None)
-
-        if flight_plan is None:
-            flight_plan = self._approved_flight_plans.get(uav_name)
-
-        self._approved_flight_plans.pop(uav_name, None)
+        flight_plan = self._finish(uav_name)
         self.network.record_event(
             component=self.name,
             event="FLIGHT_PLAN_COMPLETED",
@@ -101,6 +96,27 @@ class FlightPlanManager:
         )
         for observer in tuple(self._completion_observers):
             observer(uav_name)
+        return flight_plan
+
+    def terminate(self, uav_name: str, reason: str) -> FlightPlan | None:
+        """Remove a flight plan that ended abnormally."""
+        flight_plan = self._finish(uav_name)
+        self.network.record_event(
+            component=self.name,
+            event="FLIGHT_PLAN_TERMINATED",
+            uav=uav_name,
+            reason=reason,
+            found=flight_plan is not None,
+        )
+        for observer in tuple(self._completion_observers):
+            observer(uav_name)
+        return flight_plan
+
+    def _finish(self, uav_name: str) -> FlightPlan | None:
+        flight_plan = self._active_flight_plans.pop(uav_name, None)
+        if flight_plan is None:
+            flight_plan = self._approved_flight_plans.get(uav_name)
+        self._approved_flight_plans.pop(uav_name, None)
         return flight_plan
 
     def get(self, uav_name: str) -> FlightPlan | None:
@@ -163,6 +179,11 @@ class FlightPlanManager:
         self.network.record_event(
             component=self.name,
             event="FLIGHT_PLAN_UPDATES_LAUNCHED",
+            summary=(
+                f"Launching {len(updates)} flight-plan update(s) for "
+                f"{', '.join(uav_names)}"
+            ),
+            update_count=len(updates),
             uavs=uav_names,
         )
         for update in updates:

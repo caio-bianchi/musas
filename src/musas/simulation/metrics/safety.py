@@ -37,6 +37,9 @@ def number_of_collision_events(
 ) -> int:
     """Count entries into a sampled 3-D collision-distance condition."""
     _validate_nonnegative(collision_distance=collision_distance)
+    recorded_collisions = dataset.get_events("UAV_COLLISION")
+    if recorded_collisions:
+        return len(recorded_collisions)
 
     def collides(first: TrajectoryRecord, second: TrajectoryRecord) -> bool:
         return dist(first.position, second.position) < collision_distance
@@ -80,6 +83,9 @@ def number_of_geofence_violations(dataset: SimulationDataset) -> int:
 
 def number_of_obstacle_violations(dataset: SimulationDataset) -> int:
     """Count UAV entries into obstacle geometries."""
+    recorded_collisions = dataset.get_events("OBSTACLE_COLLISION")
+    if recorded_collisions:
+        return len(recorded_collisions)
     obstacles = tuple(dataset.get_airspace_objects("obstacle"))
     return _count_region_episodes(
         dataset.get_trajectory(),
