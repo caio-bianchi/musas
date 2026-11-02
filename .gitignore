@@ -27,3 +27,6 @@ logs/
 
 # Escrita
 TG2_Apresentacao/
+
+# Generated package documentation
+documentation/

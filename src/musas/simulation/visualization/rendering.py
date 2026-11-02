@@ -1,4 +1,6 @@
 import matplotlib.pyplot as plt
+from matplotlib.colors import to_rgba
+from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import MaxNLocator
 import numpy as np
@@ -14,10 +16,16 @@ from musas.simulation.visualization.config import (
 )
 from musas.simulation.visualization.data import (
     VisualizationData,
-    active_object_ids,
     active_plan,
     latest_track,
-    object_is_active,
+)
+from musas.simulation.visualization.style import (
+    AIRSPACE_STYLES,
+    GRID,
+    INK,
+    MUTED_INK,
+    SPINE,
+    UAV_PALETTE,
 )
 
 
@@ -32,7 +40,7 @@ def new_figure(config: VisualizationConfig):
         if config.view == "3d"
         else figure.add_subplot(111)
     )
-    axis.set_facecolor("#f8fafc")
+    axis.set_facecolor("white")
     return figure, axis
 
 
@@ -56,10 +64,14 @@ def draw_frame(
                     config.view,
                     [waypoint.position() for waypoint in plan.waypoint_list],
                     color=color,
-                    linestyle="--",
-                    linewidth=1.5,
-                    alpha=0.72,
-                    label=f"{name} — Flight plan",
+                    linestyle=(0, (5, 2.5)),
+                    linewidth=1.25,
+                    marker="o",
+                    markersize=3.8,
+                    markerfacecolor="white",
+                    markeredgecolor=color,
+                    markeredgewidth=0.8,
+                    alpha=0.82,
                     zorder=2,
                 )
 
@@ -74,9 +86,8 @@ def draw_frame(
                 config.view,
                 [state.position for state in trajectory],
                 color=color,
-                linewidth=2.4,
+                linewidth=2.0,
                 solid_capstyle="round",
-                label=f"{name} — Actual trajectory",
                 zorder=4,
             )
         if trajectory and config.show_current_positions:
@@ -87,10 +98,11 @@ def draw_frame(
                     axis,
                     config.view,
                     [position],
-                    color=[color],
-                    marker="x",
-                    linewidth=2.4,
-                    s=90,
+                    color=["#A61B1B"],
+                    marker="X",
+                    edgecolor="white",
+                    linewidth=0.7,
+                    s=82,
                     zorder=6,
                 )
             else:
@@ -100,8 +112,8 @@ def draw_frame(
                     [position],
                     color=[color],
                     edgecolor="white",
-                    linewidth=1.2,
-                    s=64,
+                    linewidth=0.9,
+                    s=52,
                     zorder=6,
                 )
             if config.show_labels:
@@ -120,10 +132,9 @@ def draw_frame(
                     [report.position for report in reports],
                     marker="x",
                     color=[color],
-                    alpha=0.60,
-                    linewidth=1.1,
-                    s=26,
-                    label=f"{name} — Sensor measurements",
+                    alpha=0.62,
+                    linewidth=0.9,
+                    s=22,
                     zorder=3,
                 )
 
@@ -141,11 +152,10 @@ def draw_frame(
                     config.view,
                     future,
                     color=color,
-                    linestyle=":",
-                    linewidth=2.2,
+                    linestyle=(0, (1.2, 1.8)),
+                    linewidth=1.6,
                     marker=".",
-                    markersize=5,
-                    label=f"{name} — Predicted track",
+                    markersize=4,
                     zorder=5,
                 )
 
@@ -154,10 +164,9 @@ def draw_frame(
 
 def _uav_colors(uav_names: tuple[str, ...]) -> dict[str, object]:
     count = len(uav_names)
-    if count <= 10:
-        color_map = plt.get_cmap("tab10")
+    if count <= len(UAV_PALETTE):
         return {
-            name: color_map(index)
+            name: UAV_PALETTE[index]
             for index, name in enumerate(uav_names)
         }
     if count <= 20:
@@ -195,12 +204,21 @@ def _scatter_positions(axis, view: View, positions, **kwargs) -> None:
 
 
 def _label_position(axis, view: View, position, label: str) -> None:
+    text_style = {
+        "fontsize": 7.5,
+        "color": INK,
+        "bbox": {
+            "boxstyle": "round,pad=0.16",
+            "facecolor": "white",
+            "edgecolor": "none",
+            "alpha": 0.78,
+        },
+    }
     if view == "3d":
         axis.text(
             *position,
             label,
-            fontsize=8,
-            color="#1e293b",
+            **text_style,
         )
     else:
         first, second = projection_indices(view)
@@ -209,8 +227,7 @@ def _label_position(axis, view: View, position, label: str) -> None:
             (position[first], position[second]),
             xytext=(4, 4),
             textcoords="offset points",
-            fontsize=8,
-            color="#1e293b",
+            **text_style,
         )
 
 
@@ -221,99 +238,199 @@ def _configure_axis(
     timestamp: float,
 ) -> None:
     limits = _axis_limits(data, config)
-    title = config.title or "Simulation dataset"
-    axis.set_title(
-        f"{title}  |  Time: {timestamp:.1f} s",
-        loc="left",
-        pad=14,
-        color="#0f172a",
-        fontweight="bold",
-        fontsize=13,
+    if config.title:
+        axis.set_title(
+            config.title,
+            loc="left",
+            pad=11,
+            color=INK,
+            fontweight="bold",
+            fontsize=11,
+        )
+    if config.show_timestamp:
+        time_label = rf"$t = {timestamp:.1f}\,\mathrm{{{config.time_unit}}}$"
+        timestamp_text = axis.text2D if config.view == "3d" else axis.text
+        timestamp_text(
+            0.985,
+            0.98,
+            time_label,
+            transform=axis.transAxes,
+            ha="right",
+            va="top",
+            fontsize=9,
+            color=INK,
+            bbox={
+                "boxstyle": "round,pad=0.22",
+                "facecolor": "white",
+                "edgecolor": GRID,
+                "linewidth": 0.6,
+                "alpha": 0.92,
+            },
+            zorder=20,
+        )
+
+    labels = ("x", "y", "z")
+    coordinate_labels = tuple(
+        _axis_label(label, config.spatial_unit)
+        for label in labels
     )
     if config.view == "3d":
-        axis.set_xlabel("X", labelpad=8)
-        axis.set_ylabel("Y", labelpad=8)
-        axis.set_zlabel("Z", labelpad=8)
+        axis.set_xlabel(coordinate_labels[0], labelpad=7)
+        axis.set_ylabel(coordinate_labels[1], labelpad=7)
+        axis.set_zlabel(coordinate_labels[2], labelpad=7)
         axis.set_xlim(*limits[0])
         axis.set_ylim(*limits[1])
         axis.set_zlim(*limits[2])
         for coordinate_axis in (axis.xaxis, axis.yaxis, axis.zaxis):
             coordinate_axis.set_major_locator(MaxNLocator(nbins=6))
-            coordinate_axis.pane.set_facecolor((0.97, 0.98, 1.0, 1.0))
-            coordinate_axis.pane.set_edgecolor("#cbd5e1")
+            coordinate_axis.pane.set_facecolor((1.0, 1.0, 1.0, 1.0))
+            coordinate_axis.pane.set_edgecolor(GRID)
+            coordinate_axis._axinfo["grid"].update({
+                "color": GRID,
+                "linestyle": ":",
+                "linewidth": 0.55,
+            })
         spans = [maximum - minimum for minimum, maximum in limits]
         axis.set_box_aspect([max(span, 1e-6) for span in spans])
-        axis.view_init(elev=25, azim=-55)
+        axis.set_proj_type("ortho")
+        axis.view_init(elev=24, azim=-58)
     else:
         first, second = projection_indices(config.view)
-        labels = ("X", "Y", "Z")
-        axis.set_xlabel(labels[first])
-        axis.set_ylabel(labels[second])
+        axis.set_xlabel(coordinate_labels[first])
+        axis.set_ylabel(coordinate_labels[second])
         axis.set_xlim(*limits[first])
         axis.set_ylim(*limits[second])
         axis.set_aspect("equal", adjustable="box")
         axis.xaxis.set_major_locator(MaxNLocator(nbins=8))
         axis.yaxis.set_major_locator(MaxNLocator(nbins=8))
-        for side in ("top", "right"):
-            axis.spines[side].set_visible(False)
-        for side in ("left", "bottom"):
-            axis.spines[side].set_color("#94a3b8")
-    axis.tick_params(colors="#475569", labelsize=8)
+        axis.tick_params(top=True, right=True)
+        for spine in axis.spines.values():
+            spine.set_color(SPINE)
+            spine.set_linewidth(0.75)
+    axis.tick_params(colors=MUTED_INK, labelsize=8.5, direction="in")
     axis.grid(
         config.show_grid,
-        color="#cbd5e1",
-        linestyle="--",
-        linewidth=0.7,
-        alpha=0.65,
+        color=GRID,
+        linestyle=":",
+        linewidth=0.6,
+        alpha=0.78,
     )
     if config.show_legend:
-        _draw_legend(axis, data, config, timestamp)
+        _draw_legend(axis, data, config)
 
 
 def _draw_legend(
     axis,
     data: VisualizationData,
     config: VisualizationConfig,
-    timestamp: float,
 ) -> None:
-    handles, labels = axis.get_legend_handles_labels()
-    unique = dict(zip(labels, handles))
-    active_geofences = active_object_ids(data, "geofence", timestamp)
-    active_wind_zones = active_object_ids(data, "wind_zone", timestamp)
+    colors = _uav_colors(data.uav_names)
 
-    if config.show_geofences and active_geofences:
-        unique["Geofence"] = Patch(color="crimson", alpha=0.35)
+    uav_handles = [
+        Line2D(
+            [0],
+            [0],
+            color=colors[name],
+            linewidth=2.0,
+            marker="o",
+            markersize=4.5,
+            markeredgecolor="white",
+            label=name,
+        )
+        for name in data.uav_names
+    ]
+    layer_handles = []
+    if config.show_flight_plans:
+        layer_handles.append(Line2D(
+            [0], [0], color=INK, linewidth=1.25,
+            linestyle=(0, (5, 2.5)), marker="o", markersize=3.5,
+            markerfacecolor="white", label="Flight plan",
+        ))
+    if config.show_real_trajectories:
+        layer_handles.append(Line2D(
+            [0], [0], color=INK, linewidth=2.0,
+            label="Actual trajectory",
+        ))
+    if config.show_tracks:
+        layer_handles.append(Line2D(
+            [0], [0], color=INK, linewidth=1.6,
+            linestyle=(0, (1.2, 1.8)), marker=".", markersize=4,
+            label="Predicted track",
+        ))
+    if config.show_sensor_reports:
+        layer_handles.append(Line2D(
+            [0], [0], color=INK, linewidth=0, marker="x",
+            markersize=5, label="Sensor measurement",
+        ))
+    if config.show_geofences and any(
+        item.object_type == "geofence"
+        for item in data.airspace_objects
+    ):
+        layer_handles.append(_region_legend_patch("geofence"))
     if config.show_obstacles and any(
         item.object_type == "obstacle"
         for item in data.airspace_objects
     ):
-        unique["Obstacle"] = Patch(color="dimgray", alpha=0.45)
+        layer_handles.append(_region_legend_patch("obstacle"))
     if config.show_wind_zones and any(
         item.object_type == "wind_zone"
-        and item.object_id in active_wind_zones
-        and object_is_active(item, timestamp)
         for item in data.airspace_objects
     ):
-        unique["Wind zone"] = Patch(color="deepskyblue", alpha=0.30)
-    if unique:
-        entry_count = len(unique)
-        axis.legend(
-            unique.values(),
-            unique.keys(),
-            loc="upper left",
-            bbox_to_anchor=(1.02, 1.0),
-            borderaxespad=0.0,
-            fontsize=7 if entry_count <= 20 else 6,
-            frameon=True,
-            fancybox=True,
-            framealpha=0.96,
-            facecolor="white",
-            edgecolor="#cbd5e1",
-            labelcolor="#334155",
-            handlelength=2.4,
-            borderpad=0.8,
-            labelspacing=0.55,
+        layer_handles.append(_region_legend_patch("wind_zone"))
+
+    legend_style = {
+        "loc": "upper left",
+        "bbox_to_anchor": (1.015, 1.0),
+        "borderaxespad": 0.0,
+        "fontsize": 7.5,
+        "frameon": True,
+        "fancybox": False,
+        "framealpha": 0.96,
+        "facecolor": "white",
+        "edgecolor": "#9CA3AF",
+        "labelcolor": INK,
+        "handlelength": 2.4,
+        "borderpad": 0.65,
+        "labelspacing": 0.45,
+    }
+    if uav_handles:
+        uav_legend = axis.legend(
+            handles=uav_handles,
+            title="UAVs",
+            ncol=max(1, (len(uav_handles) + 11) // 12),
+            **legend_style,
         )
+        uav_legend.get_title().set_fontweight("bold")
+        axis.add_artist(uav_legend)
+    if layer_handles:
+        layer_legend = axis.legend(
+            handles=layer_handles,
+            title="Layers",
+            loc="lower left",
+            bbox_to_anchor=(1.015, 0.0),
+            **{
+                key: value
+                for key, value in legend_style.items()
+                if key not in {"loc", "bbox_to_anchor"}
+            },
+        )
+        layer_legend.get_title().set_fontweight("bold")
+
+
+def _axis_label(coordinate: str, unit: str | None) -> str:
+    label = f"${coordinate}$"
+    return label if unit is None else f"{label} [{unit}]"
+
+
+def _region_legend_patch(object_type: str) -> Patch:
+    style = AIRSPACE_STYLES[object_type]
+    return Patch(
+        facecolor=to_rgba(style["color"], style["alpha"]),
+        edgecolor=style["color"],
+        hatch=style["hatch"],
+        linewidth=0.9,
+        label=style["label"],
+    )
 
 
 def _axis_limits(

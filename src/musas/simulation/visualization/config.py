@@ -19,20 +19,25 @@ class VisualizationConfig:
     show_geofences: bool = True
     show_wind_zones: bool = False
     show_obstacles: bool = True
-    show_labels: bool = True
+    show_labels: bool = False
     show_legend: bool = True
     show_grid: bool = True
     start_time: float | None = None
     end_time: float | None = None
     frame_step: float = 1.0
-    figure_size: tuple[float, float] = (11.0, 7.0)
+    figure_size: tuple[float, float] = (8.0, 5.5)
     title: str | None = None
+    show_timestamp: bool = True
+    spatial_unit: str | None = None
+    time_unit: str = "s"
 
     def __post_init__(self) -> None:
         if self.view not in ("3d", "xy", "xz", "yz"):
             raise ValueError("view must be '3d', 'xy', 'xz' or 'yz'")
         if self.frame_step <= 0:
             raise ValueError("frame_step must be greater than zero")
+        if not self.time_unit:
+            raise ValueError("time_unit cannot be empty")
         if (
             self.start_time is not None
             and self.end_time is not None

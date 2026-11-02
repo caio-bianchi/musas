@@ -7,6 +7,7 @@ from matplotlib.figure import Figure
 from musas.simulation.visualization.config import VisualizationConfig
 from musas.simulation.visualization.data import VisualizationData, load_data
 from musas.simulation.visualization.rendering import draw_frame, new_figure
+from musas.simulation.visualization.style import academic_style_context
 
 
 def plot_dataset(
@@ -14,9 +15,13 @@ def plot_dataset(
     config: VisualizationConfig | None = None,
     timestamp: float | None = None,
     output_path: str | Path | None = None,
-    dpi: int = 150,
+    dpi: int = 300,
 ) -> Figure:
-    """Create a static dataset view and optionally save it as an image."""
+    """Create a publication-ready view and optionally save it.
+
+    Raster formats use ``dpi``. Use a ``.pdf`` or ``.svg`` output path for a
+    vector figure suitable for direct inclusion in academic documents.
+    """
     config = config or VisualizationConfig()
     data = load_data(dataset_path, config)
     current_time = _bounded_time(
@@ -24,12 +29,18 @@ def plot_dataset(
         config,
         data.simulation_time if timestamp is None else float(timestamp),
     )
-    figure, axis = new_figure(config)
-    draw_frame(axis, data, config, current_time)
+    with academic_style_context():
+        figure, axis = new_figure(config)
+        draw_frame(axis, data, config, current_time)
     if output_path is not None:
         destination = Path(output_path).expanduser().resolve()
         destination.parent.mkdir(parents=True, exist_ok=True)
-        figure.savefig(destination, dpi=dpi, bbox_inches="tight")
+        figure.savefig(
+            destination,
+            dpi=dpi,
+            bbox_inches="tight",
+            facecolor="white",
+        )
     return figure
 
 
@@ -38,7 +49,7 @@ def animate_dataset(
     config: VisualizationConfig | None = None,
     output_path: str | Path | None = None,
     fps: float = 10.0,
-    dpi: int = 100,
+    dpi: int = 120,
     repeat: bool = True,
 ) -> FuncAnimation:
     """Create an animation and optionally save it as GIF or MP4."""
@@ -47,11 +58,13 @@ def animate_dataset(
     config = config or VisualizationConfig()
     data = load_data(dataset_path, config)
     frame_times = _frame_times(data, config)
-    figure, axis = new_figure(config)
+    with academic_style_context():
+        figure, axis = new_figure(config)
 
     def update(timestamp: float):
-        axis.clear()
-        draw_frame(axis, data, config, timestamp)
+        with academic_style_context():
+            axis.clear()
+            draw_frame(axis, data, config, timestamp)
         return ()
 
     animation = FuncAnimation(

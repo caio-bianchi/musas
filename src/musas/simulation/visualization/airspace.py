@@ -1,5 +1,6 @@
 import math
 
+from matplotlib.colors import to_rgba
 from matplotlib.patches import Circle, Rectangle
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 import numpy as np
@@ -15,6 +16,7 @@ from musas.simulation.visualization.data import (
     active_object_ids,
     object_is_active,
 )
+from musas.simulation.visualization.style import AIRSPACE_STYLES
 
 
 def draw_airspace(
@@ -33,17 +35,32 @@ def draw_airspace(
                 and item.object_id in active_geofences
                 and object_is_active(item, timestamp)
             ):
-                _draw_region(axis, config.view, item, "crimson", 0.20)
+                _draw_region(
+                    axis,
+                    config.view,
+                    item,
+                    AIRSPACE_STYLES["geofence"],
+                )
         elif item.object_type == "obstacle":
             if config.show_obstacles:
-                _draw_region(axis, config.view, item, "dimgray", 0.28)
+                _draw_region(
+                    axis,
+                    config.view,
+                    item,
+                    AIRSPACE_STYLES["obstacle"],
+                )
         elif (
             item.object_type == "wind_zone"
             and config.show_wind_zones
             and item.object_id in active_wind_zones
             and object_is_active(item, timestamp)
         ):
-            _draw_region(axis, config.view, item, "deepskyblue", 0.16)
+            _draw_region(
+                axis,
+                config.view,
+                item,
+                AIRSPACE_STYLES["wind_zone"],
+            )
             _draw_wind_vector(axis, config.view, item)
 
 
@@ -80,16 +97,19 @@ def geometry_extremes(item: AirspaceObjectRecord) -> list[tuple]:
     return []
 
 
-def _draw_region(axis, view, item, color, alpha) -> None:
+def _draw_region(axis, view, item, style) -> None:
     geometry = item.geometry
     geometry_type = item.geometry_type.rsplit(".", 1)[-1]
     if geometry_type == "Cylinder3D":
-        _draw_cylinder(axis, view, geometry, color, alpha)
+        _draw_cylinder(axis, view, geometry, style)
     elif geometry_type == "Box3D":
-        _draw_box(axis, view, geometry, color, alpha)
+        _draw_box(axis, view, geometry, style)
 
 
-def _draw_cylinder(axis, view, geometry, color, alpha) -> None:
+def _draw_cylinder(axis, view, geometry, style) -> None:
+    color = style["color"]
+    alpha = style["alpha"]
+    hatch = style["hatch"]
     center_x = geometry["center_x"]
     center_y = geometry["center_y"]
     radius = geometry["radius"]
@@ -125,10 +145,10 @@ def _draw_cylinder(axis, view, geometry, color, alpha) -> None:
             Circle(
                 (center_x, center_y),
                 radius,
-                facecolor=color,
+                facecolor=to_rgba(color, alpha),
                 edgecolor=color,
-                linewidth=1.2,
-                alpha=alpha,
+                linewidth=1.0,
+                hatch=hatch,
                 zorder=1,
             )
         )
@@ -139,16 +159,19 @@ def _draw_cylinder(axis, view, geometry, color, alpha) -> None:
                 (horizontal_center - radius, minimum_z),
                 2.0 * radius,
                 maximum_z - minimum_z,
-                facecolor=color,
+                facecolor=to_rgba(color, alpha),
                 edgecolor=color,
-                linewidth=1.2,
-                alpha=alpha,
+                linewidth=1.0,
+                hatch=hatch,
                 zorder=1,
             )
         )
 
 
-def _draw_box(axis, view, geometry, color, alpha) -> None:
+def _draw_box(axis, view, geometry, style) -> None:
+    color = style["color"]
+    alpha = style["alpha"]
+    hatch = style["hatch"]
     x0, x1 = geometry["minimum_x"], geometry["maximum_x"]
     y0, y1 = geometry["minimum_y"], geometry["maximum_y"]
     z0, z1 = geometry["minimum_z"], geometry["maximum_z"]
@@ -192,10 +215,10 @@ def _draw_box(axis, view, geometry, color, alpha) -> None:
                 (bounds[0], bounds[2]),
                 bounds[1] - bounds[0],
                 bounds[3] - bounds[2],
-                facecolor=color,
+                facecolor=to_rgba(color, alpha),
                 edgecolor=color,
-                linewidth=1.2,
-                alpha=alpha,
+                linewidth=1.0,
+                hatch=hatch,
                 zorder=1,
             )
         )
@@ -216,8 +239,8 @@ def _draw_wind_vector(
         axis.quiver(
             *center,
             *velocity,
-            color="dodgerblue",
-            linewidth=1.6,
+            color=AIRSPACE_STYLES["wind_zone"]["color"],
+            linewidth=1.4,
             arrow_length_ratio=0.18,
             length=3.0,
         )
@@ -228,11 +251,11 @@ def _draw_wind_vector(
             center[second],
             velocity[first],
             velocity[second],
-            color="dodgerblue",
+            color=AIRSPACE_STYLES["wind_zone"]["color"],
             angles="xy",
             scale_units="xy",
             scale=0.25,
-            width=0.006,
+            width=0.0045,
             zorder=2,
         )
 
