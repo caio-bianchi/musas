@@ -50,12 +50,25 @@ def number_of_collision_events(
 def minimum_pairwise_separation(
     dataset: SimulationDataset,
 ) -> float | None:
-    """Return the smallest sampled 3-D distance between active UAVs."""
+    """Return the smallest recorded 3-D distance between UAVs.
+
+    Active trajectory samples provide the regular observations. Collision
+    event positions are also considered because the first trajectory sample
+    after a collision already has status ``COLLIDED`` and would otherwise be
+    excluded from the metric.
+    """
     minimum = inf
     for samples in _trajectory_by_timestamp(dataset.get_trajectory()).values():
         active = [sample for sample in samples if sample.status == ACTIVE_STATUS]
         for first, second in combinations(active, 2):
             minimum = min(minimum, dist(first.position, second.position))
+
+    for event in dataset.get_events("UAV_COLLISION"):
+        position_a = event.details.get("position_a")
+        position_b = event.details.get("position_b")
+        if position_a is not None and position_b is not None:
+            minimum = min(minimum, dist(position_a, position_b))
+
     return None if minimum == inf else minimum
 
 
