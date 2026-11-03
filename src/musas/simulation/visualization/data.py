@@ -29,6 +29,7 @@ class VisualizationData:
     proposed_plans: dict[str, FlightPlan | None]
     authorized_plans: dict[str, dict[int, FlightPlan]]
     plan_events: dict[str, list[StoredEvent]]
+    track_end_times: dict[str, float]
     airspace_objects: list[AirspaceObjectRecord]
     airspace_snapshots: list[AirspaceSnapshotRecord]
 
@@ -83,6 +84,17 @@ def load_data(
             if uav_name in selected_set:
                 plan_events[uav_name].append(event)
 
+        track_end_times: dict[str, float] = {}
+        for event_type in ("FLIGHT_COMPLETED", "UAV_COLLIDED"):
+            for event in dataset.get_events(event_type):
+                uav_name = event.component
+                if uav_name not in selected_set:
+                    continue
+                track_end_times[uav_name] = min(
+                    event.timestamp,
+                    track_end_times.get(uav_name, event.timestamp),
+                )
+
         return VisualizationData(
             simulation_time=dataset.simulation_time,
             uav_names=tuple(selected),
@@ -92,6 +104,7 @@ def load_data(
             proposed_plans=proposed_plans,
             authorized_plans=authorized_plans,
             plan_events=dict(plan_events),
+            track_end_times=track_end_times,
             airspace_objects=dataset.get_airspace_objects(),
             airspace_snapshots=dataset.get_airspace_snapshots(),
         )

@@ -138,7 +138,10 @@ def draw_frame(
                     zorder=3,
                 )
 
-        if config.show_tracks:
+        track_end_time = data.track_end_times.get(name)
+        if config.show_tracks and (
+            track_end_time is None or timestamp < track_end_time
+        ):
             track = latest_track(data.predictions[name], timestamp)
             future = [
                 state.position
