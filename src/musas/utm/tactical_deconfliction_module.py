@@ -85,7 +85,7 @@ class TacticalDeconflictionModule:
             "queue_length": len(self.inbox.items),
             "assessment_interval": self.assessment_interval,
             "track_count": len(tracks),
-            "flight_plan_count": len(self.flight_plan_manager.get_all()),
+            "flight_plan_count": len(self.flight_plan_manager.get_active()),
             "predicted_state_count": sum(
                 len(track.predicted_states)
                 for track in tracks.values()
@@ -94,11 +94,16 @@ class TacticalDeconflictionModule:
         }
 
     def process_track_update(self, message: Message) -> None:
-        """Store a track if it is not stale or from a completed UAV."""
+        """Store a fresh track only while its UAV is actively flying."""
         updated_track = message.payload["track_prediction"]
-        if updated_track.uav_name in self._completed_uavs:
+        uav_name = updated_track.uav_name
+        if (
+            uav_name in self._completed_uavs
+            or not self.flight_plan_manager.is_active(uav_name)
+        ):
+            self._tracks.pop(uav_name, None)
             return
-        current_track = self._tracks.get(updated_track.uav_name)
+        current_track = self._tracks.get(uav_name)
 
         if (
             current_track is not None
@@ -106,18 +111,30 @@ class TacticalDeconflictionModule:
         ):
             return
 
-        self._tracks[updated_track.uav_name] = updated_track
+        self._tracks[uav_name] = updated_track
 
     def assess_conflicts(self):
         """Assess one coherent snapshot and apply one batch of updates."""
-        tracks = self.get_all_tracks()
+        active_flight_plans = self.flight_plan_manager.get_active()
+        active_uavs = set(active_flight_plans)
+        for uav_name in set(self._tracks) - active_uavs:
+            self._tracks.pop(uav_name, None)
+
+        tracks = {
+            uav_name: track
+            for uav_name, track in self.get_all_tracks().items()
+            if uav_name in active_uavs
+        }
         if not tracks:
             return None
         self._assessment_count += 1
         assessment_id = self._assessment_count
 
         airspace = self.flight_plan_manager.get_airspace_snapshot()
-        flight_plans = self.flight_plan_manager.get_all()
+        flight_plans = {
+            uav_name: active_flight_plans[uav_name]
+            for uav_name in tracks
+        }
         prediction_delay = self.processing_time.calculate(
             **self._processing_context(
                 "conflict_prediction",
@@ -182,12 +199,17 @@ class TacticalDeconflictionModule:
         if deconfliction_delay:
             yield self.env.timeout(deconfliction_delay)
 
-        updates = self.deconfliction_algorithm.deconflict(
+        proposed_updates = self.deconfliction_algorithm.deconflict(
             conflicts=conflicts,
             tracks=tracks,
             flight_plans=flight_plans,
             airspace=airspace,
         )
+        updates = [
+            update
+            for update in proposed_updates
+            if self.flight_plan_manager.is_active(update.uav_name)
+        ]
         if updates:
             self.network.record_event(
                 component=self.name,
