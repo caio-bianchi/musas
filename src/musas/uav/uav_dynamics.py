@@ -12,7 +12,8 @@ class UAVDynamics:
         self.algorithm = algorithm
         self.environmental_velocity_provider = environmental_velocity_provider
 
-        self.position = initial_position
+        self.position = list(initial_position)
+        self.previous_position = list(initial_position)
         self.air_velocity = [0.0, 0.0, 0.0]
         self.environmental_velocity = [0.0, 0.0, 0.0]
         self.velocity = [0.0, 0.0, 0.0]
@@ -22,6 +23,7 @@ class UAVDynamics:
         """
         Advances the physical state by dt seconds.
         """
+        self.previous_position = list(self.position)
         self.commanded_velocity = commanded_velocity
 
         new_position, new_velocity = (
@@ -66,7 +68,8 @@ class UAVDynamics:
         """
         Resets the UAV physical state.
         """
-        self.position = position
+        self.position = list(position)
+        self.previous_position = list(position)
 
         if velocity is None:
             velocity = [0.0, 0.0, 0.0]

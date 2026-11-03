@@ -5,6 +5,10 @@ from collections.abc import Callable, Iterable, Sequence
 from itertools import combinations
 from math import dist, hypot, inf
 
+from musas.simulation.collision_detection import (
+    closest_approach,
+    first_sphere_collision,
+)
 from musas.simulation.dataset import (
     AirspaceObjectRecord,
     AirspaceSnapshotRecord,
@@ -25,10 +29,10 @@ def number_of_loss_of_separation_events(
         minimum_separation_distance=minimum_separation_distance,
     )
 
-    def violates(first: TrajectoryRecord, second: TrajectoryRecord) -> bool:
-        return dist(first.position, second.position) < minimum_separation_distance
-
-    return _count_pairwise_episodes(dataset.get_trajectory(), violates)
+    return _count_pairwise_continuous_episodes(
+        dataset.get_trajectory(),
+        minimum_separation_distance,
+    )
 
 
 def number_of_collision_events(
@@ -41,10 +45,10 @@ def number_of_collision_events(
     if recorded_collisions:
         return len(recorded_collisions)
 
-    def collides(first: TrajectoryRecord, second: TrajectoryRecord) -> bool:
-        return dist(first.position, second.position) < collision_distance
-
-    return _count_pairwise_episodes(dataset.get_trajectory(), collides)
+    return _count_pairwise_continuous_episodes(
+        dataset.get_trajectory(),
+        collision_distance,
+    )
 
 
 def minimum_pairwise_separation(
@@ -58,10 +62,27 @@ def minimum_pairwise_separation(
     excluded from the metric.
     """
     minimum = inf
-    for samples in _trajectory_by_timestamp(dataset.get_trajectory()).values():
-        active = [sample for sample in samples if sample.status == ACTIVE_STATUS]
-        for first, second in combinations(active, 2):
+    groups = list(_trajectory_by_timestamp(dataset.get_trajectory()).values())
+    previous: dict[str, TrajectoryRecord] = {}
+    for samples in groups:
+        current = {
+            sample.uav_name: sample
+            for sample in samples
+            if sample.status == ACTIVE_STATUS
+        }
+        for first, second in combinations(current.values(), 2):
             minimum = min(minimum, dist(first.position, second.position))
+
+        common_names = sorted(set(previous) & set(current))
+        for first_name, second_name in combinations(common_names, 2):
+            approach = closest_approach(
+                previous[first_name].position,
+                current[first_name].position,
+                previous[second_name].position,
+                current[second_name].position,
+            )
+            minimum = min(minimum, approach.distance)
+        previous = current
 
     for event in dataset.get_events("UAV_COLLISION"):
         position_a = event.details.get("position_a")
@@ -106,21 +127,54 @@ def number_of_obstacle_violations(dataset: SimulationDataset) -> int:
     )
 
 
-def _count_pairwise_episodes(
+def _count_pairwise_continuous_episodes(
     trajectory: Sequence[TrajectoryRecord],
-    condition: Callable[[TrajectoryRecord, TrajectoryRecord], bool],
+    separation_distance: float,
 ) -> int:
-    previous_pairs: set[tuple[str, str]] = set()
-    episode_count = 0
+    """Count entries into a separation sphere between recorded instants."""
+    groups = list(_trajectory_by_timestamp(trajectory).values())
+    if not groups:
+        return 0
 
-    for samples in _trajectory_by_timestamp(trajectory).values():
-        active = [sample for sample in samples if sample.status == ACTIVE_STATUS]
+    previous = {
+        sample.uav_name: sample
+        for sample in groups[0]
+        if sample.status == ACTIVE_STATUS
+    }
+    previous_pairs = {
+        tuple(sorted((first.uav_name, second.uav_name)))
+        for first, second in combinations(previous.values(), 2)
+        if dist(first.position, second.position) <= separation_distance
+    }
+    episode_count = len(previous_pairs)
+
+    for samples in groups[1:]:
+        current = {
+            sample.uav_name: sample
+            for sample in samples
+            if sample.status == ACTIVE_STATUS
+        }
         current_pairs = {
             tuple(sorted((first.uav_name, second.uav_name)))
-            for first, second in combinations(active, 2)
-            if condition(first, second)
+            for first, second in combinations(current.values(), 2)
+            if dist(first.position, second.position) <= separation_distance
         }
-        episode_count += len(current_pairs - previous_pairs)
+        interval_pairs: set[tuple[str, str]] = set()
+        common_names = sorted(set(previous) & set(current))
+        for first_name, second_name in combinations(common_names, 2):
+            collision = first_sphere_collision(
+                previous[first_name].position,
+                current[first_name].position,
+                previous[second_name].position,
+                current[second_name].position,
+                separation_distance,
+            )
+            if collision is not None:
+                interval_pairs.add((first_name, second_name))
+
+        episode_count += len(interval_pairs - previous_pairs)
+        episode_count += len(current_pairs - interval_pairs - previous_pairs)
+        previous = current
         previous_pairs = current_pairs
 
     return episode_count

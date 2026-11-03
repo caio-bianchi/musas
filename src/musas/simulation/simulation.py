@@ -1,6 +1,5 @@
 from collections.abc import Collection
 from itertools import combinations
-from math import dist
 from pathlib import Path
 from typing import Any
 
@@ -55,6 +54,10 @@ from musas.simulation.result import (
     UAVStateSample,
 )
 from musas.simulation.dataset import SimulationDatasetRecorder
+from musas.simulation.collision_detection import (
+    first_geometry_intersection,
+    first_sphere_collision,
+)
 
 
 DEFAULT_MESSAGE_TYPES_TO_LOG = frozenset(
@@ -762,7 +765,7 @@ class Simulation:
             yield self.env.timeout(self.trajectory_record_interval)
 
     def _monitor_collisions(self):
-        """Stop UAVs that hit fixed obstacles or another active UAV."""
+        """Stop UAVs whose swept motion hits an obstacle or another UAV."""
         while True:
             active_uavs = {
                 name: uav
@@ -770,76 +773,114 @@ class Simulation:
                 if uav.status == UAVStatus.ACTIVE
             }
 
-            obstacle_hits = {}
+            candidates = []
             for name, uav in active_uavs.items():
-                obstacle_hits[name] = next(
-                    (
-                        obstacle
-                        for obstacle in self.airspace.obstacles.values()
-                        if obstacle.contains(uav.dynamics.position)
-                    ),
-                    None,
-                )
+                for obstacle in self.airspace.obstacles.values():
+                    intersection = first_geometry_intersection(
+                        uav.dynamics.previous_position,
+                        uav.dynamics.position,
+                        obstacle.geometry,
+                    )
+                    if intersection is not None:
+                        candidates.append((
+                            intersection.fraction,
+                            "obstacle",
+                            name,
+                            obstacle,
+                            intersection,
+                        ))
 
-            uav_hits: list[tuple[str, str]] = []
             for (first_name, first), (second_name, second) in combinations(
                 active_uavs.items(),
                 2,
             ):
-                if (
-                    dist(first.dynamics.position, second.dynamics.position)
-                    <= self.collision_distance
-                ):
-                    uav_hits.append((first_name, second_name))
-
-            colliding_with: dict[str, list[str]] = {}
-            for first_name, second_name in uav_hits:
-                colliding_with.setdefault(first_name, []).append(second_name)
-                colliding_with.setdefault(second_name, []).append(first_name)
-                self.network.record_event(
-                    component="Simulation",
-                    event="UAV_COLLISION",
-                    uavs=[first_name, second_name],
-                    collision_distance=self.collision_distance,
-                    position_a=list(
-                        active_uavs[first_name].dynamics.position
-                    ),
-                    position_b=list(
-                        active_uavs[second_name].dynamics.position
-                    ),
+                collision = first_sphere_collision(
+                    first.dynamics.previous_position,
+                    first.dynamics.position,
+                    second.dynamics.previous_position,
+                    second.dynamics.position,
+                    self.collision_distance,
                 )
+                if collision is not None:
+                    candidates.append((
+                        collision.fraction,
+                        "uav",
+                        first_name,
+                        second_name,
+                        collision,
+                    ))
 
-            affected_names = set(colliding_with) | {
-                name
-                for name, obstacle in obstacle_hits.items()
-                if obstacle is not None
-            }
-            for name in sorted(affected_names):
-                uav = active_uavs[name]
-                obstacle = obstacle_hits.get(name)
-                other_uavs = sorted(colliding_with.get(name, ()))
-                if obstacle is not None:
-                    reason = "OBSTACLE_COLLISION"
-                    obstacle_id = obstacle.obstacle_id
-                    other_uav = other_uavs[0] if other_uavs else None
+            affected_names: set[str] = set()
+            for fraction, kind, first_name, target, result in sorted(
+                candidates,
+                key=lambda candidate: candidate[0],
+            ):
+                collision_time = float(
+                    self.env.now + fraction * self.flight_update_interval
+                )
+                if kind == "uav":
+                    second_name = target
+                    if (
+                        first_name in affected_names
+                        or second_name in affected_names
+                    ):
+                        continue
+
+                    first_uav = active_uavs[first_name]
+                    second_uav = active_uavs[second_name]
+                    first_position = list(result.first_position)
+                    second_position = list(result.second_position)
+                    affected_names.update((first_name, second_name))
                     self.network.record_event(
                         component="Simulation",
-                        event="OBSTACLE_COLLISION",
-                        uav=name,
-                        obstacle_id=obstacle_id,
-                        position=list(uav.dynamics.position),
+                        event="UAV_COLLISION",
+                        uavs=[first_name, second_name],
+                        collision_distance=self.collision_distance,
+                        collision_time=collision_time,
+                        position_a=first_position,
+                        position_b=second_position,
+                        separation=result.distance,
                     )
-                else:
-                    reason = "UAV_COLLISION"
-                    obstacle_id = None
-                    other_uav = other_uavs[0]
+                    for uav, other_name, position in (
+                        (first_uav, second_name, first_position),
+                        (second_uav, first_name, second_position),
+                    ):
+                        if uav.crash(
+                            reason="UAV_COLLISION",
+                            other_uav=other_name,
+                            collision_position=position,
+                            collision_time=collision_time,
+                        ):
+                            self.flight_plan_manager.terminate(
+                                uav.name,
+                                "UAV_COLLISION",
+                            )
+                    continue
 
+                obstacle = target
+                if first_name in affected_names:
+                    continue
+                affected_names.add(first_name)
+                uav = active_uavs[first_name]
+                collision_position = list(result.position)
+                self.network.record_event(
+                    component="Simulation",
+                    event="OBSTACLE_COLLISION",
+                    uav=first_name,
+                    obstacle_id=obstacle.obstacle_id,
+                    collision_time=collision_time,
+                    position=collision_position,
+                )
                 if uav.crash(
-                    reason=reason,
-                    other_uav=other_uav,
-                    obstacle_id=obstacle_id,
+                    reason="OBSTACLE_COLLISION",
+                    obstacle_id=obstacle.obstacle_id,
+                    collision_position=collision_position,
+                    collision_time=collision_time,
                 ):
-                    self.flight_plan_manager.terminate(name, reason)
+                    self.flight_plan_manager.terminate(
+                        first_name,
+                        "OBSTACLE_COLLISION",
+                    )
 
             yield self.env.timeout(self.flight_update_interval)
 

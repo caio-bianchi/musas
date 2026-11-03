@@ -287,8 +287,12 @@ class UAV:
                 )
 
                 if self.guidance.completed:
-                    self.status = UAVStatus.COMPLETED
-                    self._notify_completion()
+                    # Let the simulation inspect this final motion segment
+                    # before the aircraft leaves the ACTIVE state.
+                    yield self.env.timeout(0)
+                    if self.status == UAVStatus.ACTIVE:
+                        self.status = UAVStatus.COMPLETED
+                        self._notify_completion()
 
             yield self.env.timeout(update_interval)
 
@@ -315,11 +319,15 @@ class UAV:
         reason: str,
         other_uav: str | None = None,
         obstacle_id: str | None = None,
+        collision_position: Sequence[float] | None = None,
+        collision_time: float | None = None,
     ) -> bool:
         """Stop an active UAV permanently after a physical collision."""
         if self.status != UAVStatus.ACTIVE:
             return False
 
+        if collision_position is not None:
+            self.dynamics.position = list(collision_position)
         self.status = UAVStatus.COLLIDED
         self.dynamics.stop()
         self.network.record_event(
@@ -329,6 +337,7 @@ class UAV:
             other_uav=other_uav,
             obstacle_id=obstacle_id,
             position=list(self.dynamics.position),
+            collision_time=collision_time,
         )
         return True
 
