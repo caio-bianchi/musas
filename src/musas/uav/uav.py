@@ -82,23 +82,25 @@ class UAV:
         report_interval: float,
     ):
         while self.status not in {
+            UAVStatus.FLIGHT_PLAN_REJECTED,
             UAVStatus.COMPLETED,
             UAVStatus.COLLIDED,
         }:
-            measurement = self.sensor_model.measure(
-                position=self.dynamics.position,
-                velocity=self.dynamics.velocity,
-            )
+            if self.status == UAVStatus.ACTIVE:
+                measurement = self.sensor_model.measure(
+                    position=self.dynamics.position,
+                    velocity=self.dynamics.velocity,
+                )
 
-            message = Message(
-                source=self.name,
-                destination=tracking_module.name,
-                message_type=MessageType.PERIODIC_REPORT,
-                payload=measurement,
-                issue_timestamp=self.env.now,
-            )
+                message = Message(
+                    source=self.name,
+                    destination=tracking_module.name,
+                    message_type=MessageType.PERIODIC_REPORT,
+                    payload=measurement,
+                    issue_timestamp=self.env.now,
+                )
 
-            self.network.send(message)
+                self.network.send(message)
 
             yield self.env.timeout(report_interval)
 

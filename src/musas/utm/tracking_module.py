@@ -103,16 +103,17 @@ class TrackingModule:
             timestamp=float(message.issue_timestamp),
             received_at=float(self.env.now),
         )
-        if report.uav_name in self._completed_uavs:
+        if (
+            report.uav_name in self._completed_uavs
+            or not self.flight_plan_manager.is_active(report.uav_name)
+        ):
+            self.remove_uav(report.uav_name)
             return None
         self._store_report(report)
         if self.report_observer is not None:
             self.report_observer(report)
 
-        flight_plan = self.flight_plan_manager.get(report.uav_name)
-        if flight_plan is None:
-            self._predictions.pop(report.uav_name, None)
-            return None
+        flight_plan = self.flight_plan_manager.get_active()[report.uav_name]
 
         delay = self.processing_time.calculate(
             **self._processing_context(message, "tracking_prediction")
@@ -121,6 +122,15 @@ class TrackingModule:
             raise ValueError("processing time cannot be negative")
         if delay:
             yield self.env.timeout(delay)
+
+        if (
+            report.uav_name in self._completed_uavs
+            or not self.flight_plan_manager.is_active(report.uav_name)
+        ):
+            self.remove_uav(report.uav_name)
+            return None
+
+        flight_plan = self.flight_plan_manager.get_active()[report.uav_name]
 
         prediction = self.algorithm.predict(
             uav_name=report.uav_name,
