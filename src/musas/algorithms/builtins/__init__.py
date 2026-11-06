@@ -11,9 +11,6 @@ from musas.algorithms.builtins.conflicts import (
     TacticalAirspaceConflict,
     TacticalTrafficConflict,
 )
-from musas.algorithms.builtins.dummy_strategic_deconfliction import (
-    DummyStrategicDeconfliction,
-)
 from musas.algorithms.builtins.first_order_dynamics import (
     FirstOrderDynamics,
 )
@@ -41,7 +38,6 @@ __all__ = [
     "ConstantTimeProcessing",
     "ConstantVelocityTracking",
     "DetourPathPlanner",
-    "DummyStrategicDeconfliction",
     "FirstOrderDynamics",
     "FlightPlanAwareTracking",
     "GaussianSensor",

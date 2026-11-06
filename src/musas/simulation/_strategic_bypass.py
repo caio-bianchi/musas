@@ -5,11 +5,11 @@ from musas.domain.flight import Conflict, FlightPlan, FlightPlanUpdate
 from musas.domain.message_types import StrategicDecision
 
 
-class DummyStrategicDeconfliction(
+class _ApproveAllStrategicBypass(
     ConflictPredictionAlgorithm,
     StrategicDeconflictionAlgorithm,
 ):
-    """Approve every proposed flight plan without checking conflicts."""
+    """Internal adapter used when strategic deconfliction is disabled."""
 
     def predict(
         self,

@@ -30,8 +30,8 @@ from musas.algorithms.interfaces.tracking import TrackingAlgorithm
 from musas.algorithms.builtins.constant_time_processing import (
     ConstantTimeProcessing,
 )
-from musas.algorithms.builtins.dummy_strategic_deconfliction import (
-    DummyStrategicDeconfliction,
+from musas.simulation._strategic_bypass import (
+    _ApproveAllStrategicBypass,
 )
 from musas.core.network import CommunicationNetwork
 from musas.domain.flight import FlightPlan
@@ -174,7 +174,7 @@ class Simulation:
             algorithm is not None for algorithm in strategic_algorithms
         ):
             dummy_strategic_deconfliction = (
-                DummyStrategicDeconfliction()
+                _ApproveAllStrategicBypass()
             )
             strategic_conflict_prediction_algorithm = (
                 dummy_strategic_deconfliction
