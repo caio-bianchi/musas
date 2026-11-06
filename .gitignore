@@ -28,5 +28,8 @@ logs/
 # Escrita
 TG2_Apresentacao/
 
-# Generated package documentation
-documentation/
+# Generated simulation results
+outputs/
+
+# Superseded load-experiment results (kept locally)
+old_results_load_experiment/
