@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "musas"
 version = "0.1.0"
 description = "Extensible simulator for UAV traffic management research"
+license = { file = "LICENSE" }
 requires-python = ">=3.11"
 dependencies = [
     "matplotlib",
