@@ -17,10 +17,11 @@ from musas.domain.flight import FlightPlan, Waypoint
 class DetourPathPlanner:
     """Plan a short spatial detour around known airspace restrictions.
 
-    For each detected obstacle or active geofence, the planner creates lateral
-    candidates on both sides of the restriction and vertical candidates above
-    and below it. Candidates are recursively checked against the airspace, and
-    the shortest valid route is returned.
+    For each detected obstacle or active geofence, the planner first searches
+    for a lateral detour on the current flight level. A vertical maneuver is
+    considered only when no valid lateral solution can be found. Candidates
+    are recursively checked against every known airspace restriction, and the
+    shortest solution within the preferred maneuver class is returned.
 
     The built-in planner supports :class:`Box3D` and :class:`Cylinder3D`.
     Traffic is intentionally ignored here; it is handled later by strategic
@@ -65,7 +66,7 @@ class DetourPathPlanner:
         flight_plan: FlightPlan,
         airspace: Airspace,
     ) -> FlightPlan | None:
-        """Return the shortest airspace-free candidate, if one is found."""
+        """Return a lateral-first airspace-free candidate, if one is found."""
         if len(flight_plan.waypoint_list) < 2:
             return None
         return self._search(
@@ -99,7 +100,32 @@ class DetourPathPlanner:
             airspace_conflicts,
             key=lambda conflict: conflict.timestamp,
         )
-        candidates = self._maneuver_candidates(flight_plan, first_conflict)
+        if self.allow_lateral:
+            lateral_solutions = self._search_candidates(
+                self._lateral_candidates(flight_plan, first_conflict),
+                airspace,
+                remaining_maneuvers,
+            )
+            if lateral_solutions:
+                return min(lateral_solutions, key=self._path_length)
+
+        if self.allow_vertical:
+            vertical_solutions = self._search_candidates(
+                self._vertical_candidates(flight_plan, first_conflict),
+                airspace,
+                remaining_maneuvers,
+            )
+            if vertical_solutions:
+                return min(vertical_solutions, key=self._path_length)
+
+        return None
+
+    def _search_candidates(
+        self,
+        candidates: list[FlightPlan],
+        airspace: Airspace,
+        remaining_maneuvers: int,
+    ) -> list[FlightPlan]:
         solutions: list[FlightPlan] = []
         for candidate in candidates:
             solution = self._search(
@@ -109,16 +135,13 @@ class DetourPathPlanner:
             )
             if solution is not None:
                 solutions.append(solution)
+        return solutions
 
-        if not solutions:
-            return None
-        return min(solutions, key=self._path_length)
-
-    def _maneuver_candidates(
+    def _detour_context(
         self,
         flight_plan: FlightPlan,
         conflict: StrategicAirspaceConflict,
-    ) -> list[FlightPlan]:
+    ) -> tuple[int, int, Waypoint, Waypoint] | None:
         waypoints = flight_plan.waypoint_list
         segment_index = self._segment_at(waypoints, conflict.timestamp)
         before_index, after_index = self._outer_waypoint_indices(
@@ -127,46 +150,69 @@ class DetourPathPlanner:
             conflict.restriction.geometry,
         )
         if before_index == after_index:
+            return None
+
+        return (
+            before_index,
+            after_index,
+            waypoints[before_index],
+            waypoints[after_index],
+        )
+
+    def _lateral_candidates(
+        self,
+        flight_plan: FlightPlan,
+        conflict: StrategicAirspaceConflict,
+    ) -> list[FlightPlan]:
+        context = self._detour_context(flight_plan, conflict)
+        if context is None:
             return []
+        before_index, after_index, before, after = context
 
-        before = waypoints[before_index]
-        after = waypoints[after_index]
         candidates: list[FlightPlan] = []
+        for side in (-1.0, 1.0):
+            positions = self._lateral_positions(
+                before,
+                after,
+                conflict.restriction.geometry,
+                side,
+            )
+            candidate = self._candidate_plan(
+                flight_plan,
+                before_index,
+                after_index,
+                positions,
+            )
+            if candidate is not None:
+                candidates.append(candidate)
+        return candidates
 
-        if self.allow_lateral:
-            for side in (-1.0, 1.0):
-                positions = self._lateral_positions(
-                    before,
-                    after,
-                    conflict.restriction.geometry,
-                    side,
-                )
-                candidate = self._candidate_plan(
-                    flight_plan,
-                    before_index,
-                    after_index,
-                    positions,
-                )
-                if candidate is not None:
-                    candidates.append(candidate)
+    def _vertical_candidates(
+        self,
+        flight_plan: FlightPlan,
+        conflict: StrategicAirspaceConflict,
+    ) -> list[FlightPlan]:
+        context = self._detour_context(flight_plan, conflict)
+        if context is None:
+            return []
+        before_index, after_index, before, after = context
 
-        if self.allow_vertical:
-            for altitude in self._vertical_altitudes(
-                conflict.restriction.geometry
-            ):
-                positions = [
-                    [before.x, before.y, altitude],
-                    [after.x, after.y, altitude],
-                ]
-                candidate = self._candidate_plan(
-                    flight_plan,
-                    before_index,
-                    after_index,
-                    positions,
-                )
-                if candidate is not None:
-                    candidates.append(candidate)
-
+        candidates: list[FlightPlan] = []
+        for altitude in self._vertical_altitudes(
+            conflict.restriction.geometry
+        ):
+            positions = [
+                [before.x, before.y, altitude],
+                [after.x, after.y, altitude],
+            ]
+            candidate = self._candidate_plan(
+                flight_plan,
+                before_index,
+                after_index,
+                positions,
+            )
+            if candidate is not None:
+                candidates.append(candidate)
         return candidates
 
     def _lateral_positions(

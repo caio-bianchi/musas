@@ -18,12 +18,14 @@ from musas.domain.message_types import StrategicDecision
 
 
 class RecursiveTimeShiftDeconfliction(StrategicDeconflictionAlgorithm):
-    """Resolve strategic conflicts with path planning followed by FCFS delay.
+    """Resolve airspace conflicts spatially and traffic conflicts temporally.
 
-    Known obstacles and geofences are handled first by ``path_planner``. The
-    resulting spatially valid plan is then shifted forward in time until it is
-    separated from every previously approved flight plan. In accordance with
-    first-come, first-served priority, existing plans are never modified.
+    Known obstacles and geofences are handled first by ``path_planner``, which
+    prioritizes lateral detours that preserve altitude and uses a vertical
+    maneuver only as a fallback. The resulting airspace-free route is then
+    shifted forward in time until it is separated from every previously
+    approved flight plan. In accordance with first-come, first-served
+    priority, existing plans are never modified.
     """
 
     def __init__(
