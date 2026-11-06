@@ -1,0 +1,2 @@
+UAV A: COMPLETED, departs at t = 2.0 s, 2 waypoints
+UAV B: COMPLETED, departs at t = 8.0 s, 4 waypoints

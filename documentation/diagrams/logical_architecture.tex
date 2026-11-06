@@ -1,0 +1,72 @@
+% Logical architecture of the simulation (Figure 4.1). Same visual style as
+% architecture_full.tex; requires seqstyle.tex and the arrows.meta library.
+\definecolor{userred}{HTML}{B22222}
+\begin{tikzpicture}[
+    x=1cm, y=1cm, font=\fontsize{8}{9.6}\selectfont,
+    module/.style={draw=black!80, fill=sequtm, line width=0.8pt,
+        align=center, font=\fontsize{8.5}{10}\selectfont\bfseries,
+        minimum width=3cm, minimum height=1.3cm, rounded corners=2pt},
+    net/.style={-{Stealth[length=2mm]}, line width=0.75pt},
+    call/.style={net, dash pattern=on 3pt off 2pt},
+    user/.style={net, userred, line width=0.9pt},
+    lbl/.style={font=\fontsize{7}{8.4}\selectfont, align=center,
+        inner sep=1pt, text=black},
+    ulbl/.style={lbl, text=userred, fill=white, inner sep=2pt},
+]
+    % UAS column
+    \draw[black!80, dashed, line width=0.7pt, fill=white]
+        (0.3,-0.6) rectangle (2.3,-7.8);
+    \node[font=\fontsize{8.5}{10}\selectfont\bfseries] at (1.3,-1.25) {UASs};
+    \foreach \y in {-2.75,-4.45,-6.15} {
+        \begin{scope}[shift={(1.3,\y)}]
+            \foreach \dx/\dy in {-0.32/0.2, 0.32/0.2, -0.32/-0.2, 0.32/-0.2} {
+                \draw[line width=1.2pt] (0,0) -- (\dx,\dy);
+                \draw[line width=0.6pt, fill=black!15] (\dx,\dy) ellipse (0.2 and 0.07);
+            }
+            \fill (0,0) circle (0.1);
+        \end{scope}
+    }
+
+    % UTM modules
+    \node[module] (sd) at (11.0,-1.35) {Strategic\\Deconfliction\\Module};
+    \node[module, minimum height=1.6cm] (fpm) at (11.0,-4.05) {Flight Plan\\Manager};
+    \node[module] (td) at (11.0,-6.95) {Tactical\\Deconfliction\\Module};
+    \node[module, minimum width=2.6cm, minimum height=0.9cm] (tr) at (5.9,-7.0)
+        {Tracking\\Module};
+
+    % Network messages
+    \draw[net] (2.3,-1.0) -- node[lbl, above] {Proposals; flight started / completed}
+        (sd.west |- 0,-1.0);
+    \draw[net] (sd.west |- 0,-1.7) -- node[lbl, above] {Decision, counter-proposal}
+        (2.3,-1.7);
+    \draw[net] (fpm.west |- 0,-3.65) -- node[lbl, above] {Updated plans (tactical updates)}
+        (2.3,-3.65);
+    \draw[net] (2.3,-7.1) -- node[lbl, above] {Periodic\\reports} (tr.west |- 0,-7.1);
+    \draw[net] (tr.east |- 0,-7.2) -- node[lbl, below] {Predicted\\tracks} (td.west |- 0,-7.2);
+
+    % Internal calls
+    \draw[call] (10.4,-2.0) -- node[lbl, left] {Approve, activate,\\complete} (10.4,-3.25);
+    \draw[call] (11.6,-3.25) -- node[lbl, right] {Plans,\\airspace snapshot} (11.6,-2.0);
+    \draw[call] (10.4,-6.3) -- node[lbl, left] {Update\\batch} (10.4,-4.85);
+    \draw[call] (11.6,-4.85) -- node[lbl, right] {Active plans,\\airspace snapshot} (11.6,-6.3);
+    \draw[call] (fpm.west |- 0,-4.55) -- (8.3,-4.55) -- (8.3,-6.8)
+        -- (tr.east |- 0,-6.8);
+    \node[lbl, anchor=east] at (8.2,-5.7) {Active plan,\\completion notice};
+
+    % User-provided algorithms
+    \draw[user] (17.0,-1.0) -- node[ulbl, pos=0.45] {Strategic conflict prediction} (sd.east |- 0,-1.0);
+    \draw[user] (17.0,-1.7) -- node[ulbl, pos=0.45] {Strategic deconfliction} (sd.east |- 0,-1.7);
+    \draw[user] (17.0,-6.6) -- node[ulbl, pos=0.45] {Tactical conflict prediction} (td.east |- 0,-6.6);
+    \draw[user] (17.0,-7.3) -- node[ulbl, pos=0.45] {Tactical deconfliction} (td.east |- 0,-7.3);
+    \draw[user] (5.9,-8.75) -- node[ulbl, pos=0.4] {Tracking} (tr.south);
+    \draw[user] (1.3,-8.75) -- node[ulbl, pos=0.4] {Guidance, dynamics, sensor} (1.3,-7.8);
+
+    % Legend
+    \draw[black!50, dashed, rounded corners=6pt] (0.3,-9.25) rectangle (17.0,-10.15);
+    \draw[net] (1.2,-9.7) -- (2.2,-9.7);
+    \node[lbl, anchor=west] at (2.3,-9.7) {Network message (configured delay)};
+    \draw[call] (7.3,-9.7) -- (8.3,-9.7);
+    \node[lbl, anchor=west] at (8.4,-9.7) {Internal call or shared state};
+    \draw[user] (12.6,-9.7) -- (13.6,-9.7);
+    \node[lbl, anchor=west, text=userred] at (13.7,-9.7) {User-provided algorithm};
+\end{tikzpicture}

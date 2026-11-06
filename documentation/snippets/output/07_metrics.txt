@@ -1,0 +1,7 @@
+flights                        2
+modified_flights               1
+detected_strategic_conflicts   2
+loss_of_separation_events      0
+collision_events               0
+minimum_pairwise_separation    30.5
+average_actual_distance        209.3

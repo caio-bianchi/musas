@@ -1,0 +1,9 @@
+UAVs: ('UAV A', 'UAV B')
+Run status: COMPLETED
+t = 0.0 s Strategic decision for UAV A: APPROVE
+t = 0.0 s Strategic decision for UAV B: COUNTER_PROPOSAL
+t = 10.2 s [4.3, -82.8, 100.0]
+t = 10.4 s [4.8, -80.8, 100.0]
+t = 10.6 s [5.3, -78.8, 100.0]
+t = 10.8 s [5.8, -76.7, 100.0]
+t = 11.0 s [6.3, -74.7, 100.0]
