@@ -103,3 +103,7 @@ MUSAS was developed as the undergraduate thesis *A Modular Simulation
 Framework for Assessing Deconfliction Strategies in the UTM Landscape*, by
 Caio Bianchi, advised by Prof. Juliana de Melo Bezerra, at the Instituto
 Tecnológico de Aeronáutica (ITA).
+
+## License
+
+MUSAS is released under the [MIT License](LICENSE).
