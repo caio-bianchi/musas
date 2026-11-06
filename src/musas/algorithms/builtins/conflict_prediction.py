@@ -4,6 +4,10 @@ from itertools import combinations
 from math import dist
 
 from musas.airspace.airspace import Airspace
+from musas.algorithms.builtins._track_comparison import (
+    IndexedTrack,
+    bounding_box_gap,
+)
 from musas.algorithms.builtins._trajectory import position_at, sample_times
 from musas.algorithms.builtins.conflicts import (
     StrategicAirspaceConflict,
@@ -28,12 +32,22 @@ class MinimumSeparationConflictPrediction(ConflictPredictionAlgorithm):
     distance between two sampled positions is smaller than
     ``minimum_separation_distance``. The first conflict with each aircraft or
     airspace restriction is returned.
+
+    Plans are compared only over their common time window, so a plan that
+    starts right after another one ends is never compared with it. A terminal
+    rule covers this gap: a conflict is also reported when one UAV departs
+    less than ``terminal_radius`` from the destination of another, at most
+    ``terminal_buffer`` seconds after that arrival. The arriving UAV may still
+    be there, because it completes its flight slightly after the planned
+    arrival time. Setting either parameter to zero disables the rule.
     """
 
     def __init__(
         self,
         minimum_separation_distance: float = 30.0,
         sampling_interval: float = 0.5,
+        terminal_buffer: float = 1.0,
+        terminal_radius: float = 5.0,
     ) -> None:
         if minimum_separation_distance <= 0:
             raise ValueError(
@@ -41,10 +55,16 @@ class MinimumSeparationConflictPrediction(ConflictPredictionAlgorithm):
             )
         if sampling_interval <= 0:
             raise ValueError("sampling_interval must be greater than zero")
+        if terminal_buffer < 0:
+            raise ValueError("terminal_buffer cannot be negative")
+        if terminal_radius < 0:
+            raise ValueError("terminal_radius cannot be negative")
         self.minimum_separation_distance = float(
             minimum_separation_distance
         )
         self.sampling_interval = float(sampling_interval)
+        self.terminal_buffer = float(terminal_buffer)
+        self.terminal_radius = float(terminal_radius)
 
     def predict(
         self,
@@ -85,7 +105,12 @@ class MinimumSeparationConflictPrediction(ConflictPredictionAlgorithm):
             approved_plan.waypoint_list[-1].t,
         )
         if end < start:
-            return None
+            # The plans do not overlap in time; only the terminal rule applies.
+            return self._terminal_conflict(
+                proposed_plan,
+                approved_plan,
+                approved_uav,
+            )
 
         for timestamp in sample_times(
             start,
@@ -101,6 +126,43 @@ class MinimumSeparationConflictPrediction(ConflictPredictionAlgorithm):
                     conflicting_uav=approved_uav,
                     proposed_position=tuple(proposed_position),
                     conflicting_position=tuple(approved_position),
+                    separation_distance=separation,
+                )
+        return self._terminal_conflict(
+            proposed_plan,
+            approved_plan,
+            approved_uav,
+        )
+
+    def _terminal_conflict(
+        self,
+        proposed_plan: FlightPlan,
+        approved_plan: FlightPlan,
+        approved_uav: str,
+    ) -> StrategicTrafficConflict | None:
+        """Report a departure from the point where another UAV just arrived."""
+        for departing, arriving in (
+            (proposed_plan, approved_plan),
+            (approved_plan, proposed_plan),
+        ):
+            origin = departing.waypoint_list[0]
+            destination = arriving.waypoint_list[-1]
+            time_after_arrival = origin.t - destination.t
+            separation = dist(origin.position(), destination.position())
+            if (
+                0.0 <= time_after_arrival <= self.terminal_buffer
+                and separation < self.terminal_radius
+            ):
+                proposed_waypoint, approved_waypoint = (
+                    (origin, destination)
+                    if departing is proposed_plan
+                    else (destination, origin)
+                )
+                return StrategicTrafficConflict(
+                    timestamp=origin.t,
+                    conflicting_uav=approved_uav,
+                    proposed_position=tuple(proposed_waypoint.position()),
+                    conflicting_position=tuple(approved_waypoint.position()),
                     separation_distance=separation,
                 )
         return None
@@ -152,7 +214,13 @@ class MinimumSeparationConflictPrediction(ConflictPredictionAlgorithm):
 class MinimumSeparationTacticalConflictPrediction(
     TacticalConflictPredictionAlgorithm
 ):
-    """Predict spherical separation and airspace conflicts from tracks."""
+    """Predict spherical separation and airspace conflicts from tracks.
+
+    For each pair of tracks, every state of the first track is compared with
+    the closest-in-time state of the second one. Pairs whose bounding boxes
+    are at least ``minimum_separation_distance`` apart cannot conflict and are
+    skipped before this state-by-state comparison.
+    """
 
     def __init__(
         self,
@@ -176,8 +244,8 @@ class MinimumSeparationTacticalConflictPrediction(
         airspace: Airspace,
     ) -> list[Conflict]:
         conflicts: list[Conflict] = []
-        track_states = {
-            name: self._states(track)
+        indexed_tracks = {
+            name: IndexedTrack.from_track(track)
             for name, track in tracks.items()
         }
 
@@ -185,7 +253,7 @@ class MinimumSeparationTacticalConflictPrediction(
             conflicts.extend(
                 self._airspace_conflicts(
                     uav_name,
-                    track_states[uav_name],
+                    indexed_tracks[uav_name].states,
                     airspace,
                 )
             )
@@ -193,9 +261,9 @@ class MinimumSeparationTacticalConflictPrediction(
         for uav_name, other_name in combinations(sorted(tracks), 2):
             conflict = self._traffic_conflict(
                 uav_name,
-                track_states[uav_name],
+                indexed_tracks[uav_name],
                 other_name,
-                track_states[other_name],
+                indexed_tracks[other_name],
             )
             if conflict is not None:
                 conflicts.append(conflict)
@@ -204,19 +272,19 @@ class MinimumSeparationTacticalConflictPrediction(
     def _traffic_conflict(
         self,
         uav_name: str,
-        states: tuple[PredictedState, ...],
+        track: IndexedTrack,
         other_name: str,
-        other_states: tuple[PredictedState, ...],
+        other_track: IndexedTrack,
     ) -> TacticalTrafficConflict | None:
-        if not other_states:
+        # No separation can be smaller than the gap between the bounding
+        # boxes, so distant pairs are discarded without further work.
+        if (
+            bounding_box_gap(track, other_track)
+            >= self.minimum_separation_distance
+        ):
             return None
-        for state in states:
-            other = min(
-                other_states,
-                key=lambda candidate: abs(
-                    candidate.timestamp - state.timestamp
-                ),
-            )
+        for state in track.states:
+            other = other_track.nearest_state(state.timestamp)
             if (
                 abs(other.timestamp - state.timestamp)
                 > self.maximum_time_difference
@@ -270,10 +338,3 @@ class MinimumSeparationTacticalConflictPrediction(
                     ))
                     detected_restrictions.add(key)
         return conflicts
-
-    @staticmethod
-    def _states(track: TrackPrediction) -> tuple[PredictedState, ...]:
-        return (
-            track.estimated_state,
-            *track.predicted_states,
-        )
