@@ -1,0 +1,14 @@
+# Environment used for the experiments of the thesis (Python 3.13).
+# Run from the repository root:  pip install -r requirements.txt
+# MUSAS itself is installed in editable mode; its minimum runtime
+# dependencies are declared in pyproject.toml.
+-e .
+
+# Exact versions used to produce the reported results
+matplotlib==3.11.1
+numpy==2.5.1
+pillow==12.3.0
+simpy==4.1.2
+
+# Kernel for the experiment and documentation notebooks
+ipykernel==7.3.0
