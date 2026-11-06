@@ -9,118 +9,6 @@ from musas.domain.flight import FlightPlan
 from musas.domain.tracking import PredictedState, TrackingReport, TrackPrediction
 
 
-class ConstantVelocityTracking(TrackingAlgorithm):
-    """Predict future states by maintaining the observed velocity constant."""
-
-    def predict(
-        self,
-        uav_name: str,
-        report_history: Sequence[TrackingReport],
-        flight_plan: FlightPlan,
-        prediction_start: float,
-        prediction_horizon: int,
-        prediction_step: float,
-    ) -> TrackPrediction:
-        del flight_plan
-        reports = _validated_reports(
-            report_history,
-            prediction_horizon,
-            prediction_step,
-        )
-        latest = reports[-1]
-        velocity = _observed_velocity(reports)
-        estimated_position = _propagate(
-            latest.position,
-            velocity,
-            max(0.0, prediction_start - latest.timestamp),
-        )
-
-        return _constant_velocity_prediction(
-            uav_name=uav_name,
-            position=estimated_position,
-            velocity=velocity,
-            prediction_start=prediction_start,
-            prediction_horizon=prediction_horizon,
-            prediction_step=prediction_step,
-        )
-
-
-class AlphaBetaTracking(TrackingAlgorithm):
-    """Estimate position and velocity with a classical alpha-beta filter.
-
-    ``alpha`` controls how strongly the estimated position follows each new
-    position measurement. ``beta`` controls the corresponding velocity
-    correction. The filtered state is propagated with constant velocity over
-    the prediction horizon.
-    """
-
-    def __init__(self, alpha: float = 0.85, beta: float = 0.10) -> None:
-        if not 0.0 <= alpha <= 1.0:
-            raise ValueError("alpha must be between zero and one")
-        if not 0.0 <= beta <= 1.0:
-            raise ValueError("beta must be between zero and one")
-        self.alpha = float(alpha)
-        self.beta = float(beta)
-
-    def predict(
-        self,
-        uav_name: str,
-        report_history: Sequence[TrackingReport],
-        flight_plan: FlightPlan,
-        prediction_start: float,
-        prediction_horizon: int,
-        prediction_step: float,
-    ) -> TrackPrediction:
-        del flight_plan
-        reports = _validated_reports(
-            report_history,
-            prediction_horizon,
-            prediction_step,
-        )
-
-        position = _vector(reports[0].position)
-        velocity = _vector(reports[0].velocity)
-        state_timestamp = float(reports[0].timestamp)
-
-        for report in reports[1:]:
-            elapsed = float(report.timestamp) - state_timestamp
-            if elapsed < 0.0:
-                continue
-
-            predicted_position = _propagate(position, velocity, elapsed)
-            residual = [
-                measured - predicted
-                for measured, predicted in zip(
-                    _vector(report.position),
-                    predicted_position,
-                )
-            ]
-            position = [
-                predicted + self.alpha * error
-                for predicted, error in zip(predicted_position, residual)
-            ]
-            if elapsed > 0.0:
-                velocity = [
-                    component + self.beta * error / elapsed
-                    for component, error in zip(velocity, residual)
-                ]
-            state_timestamp = float(report.timestamp)
-
-        estimated_position = _propagate(
-            position,
-            velocity,
-            max(0.0, prediction_start - state_timestamp),
-        )
-        return _constant_velocity_prediction(
-            uav_name=uav_name,
-            position=estimated_position,
-            velocity=velocity,
-            prediction_start=prediction_start,
-            prediction_horizon=prediction_horizon,
-            prediction_step=prediction_step,
-        )
-
-
 class FlightPlanAwareTracking(TrackingAlgorithm):
     """Combine the planned trajectory with observed position and velocity.
 
@@ -128,8 +16,15 @@ class FlightPlanAwareTracking(TrackingAlgorithm):
     position offset and the observed velocity error are carried into the
     prediction, allowing disturbances such as wind to influence the track.
     If an active flight exceeds its planned arrival time, the prediction
-    continues toward the final waypoint using its observed speed. Once the
-    destination is reached, all remaining predicted states stay there.
+    continues toward the final waypoint using its observed speed.
+
+    The prediction ends at the predicted arrival. A UAV that reaches its
+    destination completes its flight and leaves the airspace, so it is not
+    represented as hovering there for the rest of the horizon. This matches
+    the strategic layer, which treats a flight plan as ending at its final
+    waypoint, and the safety metrics, which only consider active UAVs. The
+    returned track may therefore contain fewer than ``prediction_horizon``
+    predicted states, or none when the UAV is already at its destination.
     """
 
     def predict(
@@ -199,13 +94,13 @@ class FlightPlanAwareTracking(TrackingAlgorithm):
             destination,
         )
         for step in range(1, prediction_horizon + 1):
+            if destination_reached:
+                break
+
             elapsed = prediction_step * step
             timestamp = prediction_start + elapsed
 
-            if destination_reached:
-                predicted_position = destination.copy()
-                predicted_velocity = [0.0 for _ in destination]
-            elif timestamp <= planned_end:
+            if timestamp <= planned_end:
                 planned_position = position_at(flight_plan, timestamp)
                 planned_velocity = velocity_at(flight_plan, timestamp)
                 predicted_position = [
@@ -268,57 +163,27 @@ class FlightPlanAwareTracking(TrackingAlgorithm):
         )
 
 
-def _constant_velocity_prediction(
-    uav_name: str,
-    position: Sequence[float],
-    velocity: Sequence[float],
-    prediction_start: float,
-    prediction_horizon: int,
-    prediction_step: float,
-) -> TrackPrediction:
-    estimated_position = _vector(position)
-    estimated_velocity = _vector(velocity)
-    predicted_states = tuple(
-        PredictedState(
-            position=_propagate(
-                estimated_position,
-                estimated_velocity,
-                prediction_step * step,
-            ),
-            velocity=estimated_velocity.copy(),
-            timestamp=prediction_start + prediction_step * step,
-        )
-        for step in range(1, prediction_horizon + 1)
-    )
-    return TrackPrediction(
-        uav_name=uav_name,
-        estimated_state=PredictedState(
-            position=estimated_position,
-            velocity=estimated_velocity,
-            timestamp=prediction_start,
-        ),
-        predicted_states=predicted_states,
-        generated_at=prediction_start,
-    )
-
-
 def _observed_velocity(
     report_history: Sequence[TrackingReport],
 ) -> list[float]:
-    latest = report_history[-1]
-    if len(report_history) < 2:
-        return _vector(latest.velocity)
+    """Return a recency-weighted mean of reported ground velocities.
 
-    previous = report_history[-2]
-    elapsed = float(latest.timestamp) - float(previous.timestamp)
-    if elapsed <= 0.0:
-        return _vector(latest.velocity)
+    The UAV reports its resultant velocity, including environmental effects.
+    Using these measurements avoids the sampling artefact produced by finite
+    differences when report and dynamics intervals are not synchronized.
+    Linear weights retain the smoothing benefit of the full history window
+    while giving the freshest reports the greatest influence.
+    """
+    velocities = [_vector(report.velocity) for report in report_history]
+    weights = tuple(range(1, len(velocities) + 1))
+    total_weight = float(sum(weights))
     return [
-        (current - past) / elapsed
-        for current, past in zip(
-            _vector(latest.position),
-            _vector(previous.position),
+        sum(
+            weight * velocity[axis]
+            for weight, velocity in zip(weights, velocities)
         )
+        / total_weight
+        for axis in range(len(velocities[-1]))
     ]
 
 
@@ -407,11 +272,4 @@ def _validated_reports(
         raise ValueError("prediction_step must be greater than zero")
 
     reports = tuple(sorted(report_history, key=lambda report: report.timestamp))
-    dimensions = {
-        len(values)
-        for report in reports
-        for values in (report.position, report.velocity)
-    }
-    if len(dimensions) != 1 or next(iter(dimensions)) == 0:
-        raise ValueError("report positions and velocities must share a dimension")
     return reports
